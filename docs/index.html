@@ -149,7 +149,8 @@
       }
 
       .hero-shot,
-      .telegram-code {
+      .telegram-code,
+      .origin-panel {
         display: block;
         border-radius: 24px;
         border: 1px solid var(--line);
@@ -168,6 +169,41 @@
         word-break: break-word;
         color: var(--muted);
         font: 600 13px/1.7 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      }
+
+      .origin {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+        gap: 18px;
+      }
+
+      .origin-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .origin-actions a {
+        border-radius: 999px;
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-weight: 700;
+        padding: 10px 14px;
+        text-decoration: none;
+      }
+
+      .origin-panel {
+        padding: 18px;
+      }
+
+      .origin-panel a {
+        color: var(--accent);
+        display: block;
+        font-weight: 700;
+        line-height: 1.8;
+        text-decoration: none;
+        word-break: break-word;
       }
 
       .grid {
@@ -230,6 +266,21 @@
         align-items: center;
       }
 
+      .telegram-qr {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: #fff;
+        padding: 14px;
+        width: min(220px, 100%);
+      }
+
+      .telegram-qr img {
+        display: block;
+        width: 100%;
+        height: auto;
+        image-rendering: pixelated;
+      }
+
       .telegram a {
         color: var(--accent);
         font-weight: 700;
@@ -242,6 +293,7 @@
       @media (max-width: 920px) {
         .hero,
         .grid,
+        .origin,
         .telegram {
           grid-template-columns: 1fr;
         }
@@ -384,10 +436,48 @@ PUBLISHING.md</pre>
         </div>
       </section>
 
+      <section class="section origin">
+        <div>
+          <div data-lang="en" class="active">
+            <h3>Project origin and thanks</h3>
+            <p>
+              CodexTools is a standalone Go refactor and manager UI project based on the earlier Codex++ work. Thanks to the original Codex++ project for the foundation, workflow ideas, and user-facing tool direction.
+            </p>
+            <div class="origin-actions">
+              <a href="https://github.com/BigPizzaV3/CodexPlusPlus">Original project</a>
+              <a href="https://github.com/hereww/CodexPlusPlus">Refactor source</a>
+            </div>
+          </div>
+          <div data-lang="zh">
+            <h3>项目来源与鸣谢</h3>
+            <p>
+              CodexTools 是基于早期 Codex++ 工作继续拆分出的独立 Go 重构和管理器界面项目。感谢原 Codex++ 项目提供的基础能力、工作流思路和面向用户的工具方向。
+            </p>
+            <div class="origin-actions">
+              <a href="https://github.com/BigPizzaV3/CodexPlusPlus">原始项目</a>
+              <a href="https://github.com/hereww/CodexPlusPlus">重构来源</a>
+            </div>
+          </div>
+        </div>
+        <div class="origin-panel">
+          <div data-lang="en" class="active">
+            <h3>Navigation</h3>
+            <a href="https://github.com/BigPizzaV3/CodexPlusPlus">github.com/BigPizzaV3/CodexPlusPlus</a>
+            <a href="https://github.com/hereww/CodexPlusPlus">github.com/hereww/CodexPlusPlus</a>
+            <a href="https://github.com/hereww/codextools">github.com/hereww/codextools</a>
+          </div>
+          <div data-lang="zh">
+            <h3>项目导航</h3>
+            <a href="https://github.com/BigPizzaV3/CodexPlusPlus">github.com/BigPizzaV3/CodexPlusPlus</a>
+            <a href="https://github.com/hereww/CodexPlusPlus">github.com/hereww/CodexPlusPlus</a>
+            <a href="https://github.com/hereww/codextools">github.com/hereww/codextools</a>
+          </div>
+        </div>
+      </section>
+
       <section class="section telegram">
-        <div class="telegram-code">
-          <pre>Telegram
-https://t.me/wanai8</pre>
+        <div class="telegram-qr">
+          <img src="./assets/telegram-qr.png" alt="Telegram group QR code for https://t.me/wanai8" />
         </div>
         <div>
           <div data-lang="en" class="active">

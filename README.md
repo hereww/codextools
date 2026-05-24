@@ -53,6 +53,15 @@ go build -o codextools .
 
 Telegram: `https://t.me/wanai8`
 
+## Project origin and thanks
+
+CodexTools is a standalone Go refactor and manager UI project based on the earlier Codex++ work.
+Thanks to the original Codex++ project for the foundation, workflow ideas, and user-facing tool direction.
+
+- Original project: <https://github.com/BigPizzaV3/CodexPlusPlus>
+- Refactor source: <https://github.com/hereww/CodexPlusPlus>
+- Standalone project: <https://github.com/hereww/codextools>
+
 ## Downloads
 
 - GitHub Pages download page: [docs/downloads.html](./docs/downloads.html)

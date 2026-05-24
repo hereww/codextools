@@ -53,6 +53,15 @@ go build -o codextools .
 
 地址：`https://t.me/wanai8`
 
+## 项目来源与鸣谢
+
+CodexTools 是基于早期 Codex++ 工作继续拆分出的独立 Go 重构和管理器界面项目。
+感谢原 Codex++ 项目提供的基础能力、工作流思路和面向用户的工具方向。
+
+- 原始项目：<https://github.com/BigPizzaV3/CodexPlusPlus>
+- 重构来源：<https://github.com/hereww/CodexPlusPlus>
+- 独立项目：<https://github.com/hereww/codextools>
+
 ## 下载
 
 - GitHub Pages 下载页：[docs/downloads.html](./docs/downloads.html)
