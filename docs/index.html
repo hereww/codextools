@@ -213,6 +213,68 @@
         margin-top: 18px;
       }
 
+      .release {
+        overflow: hidden;
+        position: relative;
+      }
+
+      .release::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(135deg, rgba(19, 103, 209, 0.08), transparent 34%),
+          linear-gradient(315deg, rgba(15, 118, 110, 0.08), transparent 38%);
+      }
+
+      .release > * {
+        position: relative;
+      }
+
+      .release-head {
+        align-items: flex-start;
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .release-badge {
+        border: 1px solid rgba(19, 103, 209, 0.2);
+        border-radius: 999px;
+        background: rgba(219, 234, 254, 0.78);
+        color: var(--primary);
+        flex: 0 0 auto;
+        font-weight: 800;
+        padding: 9px 13px;
+      }
+
+      .release-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .release-item {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 16px;
+        min-height: 150px;
+      }
+
+      .release-item strong {
+        color: var(--text);
+        display: block;
+        font-size: 17px;
+        margin-bottom: 8px;
+      }
+
+      .release-item p {
+        margin: 0;
+      }
+
       .card {
         border: 1px solid var(--line);
         border-radius: 24px;
@@ -293,9 +355,14 @@
       @media (max-width: 920px) {
         .hero,
         .grid,
+        .release-grid,
         .origin,
         .telegram {
           grid-template-columns: 1fr;
+        }
+
+        .release-head {
+          flex-direction: column;
         }
 
         .topbar {
@@ -410,6 +477,67 @@ PUBLISHING.md</pre>
           </div>
         </article>
       </div>
+
+      <section class="section release">
+        <div data-lang="en" class="active">
+          <div class="release-head">
+            <div>
+              <h3>New in CodexTools 1.1.8</h3>
+              <p>
+                This release focuses on making the standalone manager easier to install, safer to launch, and clearer when users switch between official login and relay/API modes.
+              </p>
+            </div>
+            <span class="release-badge">v1.1.8</span>
+          </div>
+          <div class="release-grid">
+            <article class="release-item">
+              <strong>Ready-to-use desktop builds</strong>
+              <p>macOS and Windows packages are now published from the standalone project, with direct download links on the downloads page.</p>
+            </article>
+            <article class="release-item">
+              <strong>Relay mode switcher</strong>
+              <p>The manager restores a clearer mode switch for official login, compatible API, and relay workflows.</p>
+            </article>
+            <article class="release-item">
+              <strong>Mixed API restart fixes</strong>
+              <p>Restart handling was adjusted so switching API modes is less confusing and avoids stale launch state.</p>
+            </article>
+            <article class="release-item">
+              <strong>Safer launcher behavior</strong>
+              <p>If injection fails, the launcher now degrades more gracefully instead of leaving non-technical users stuck at a dead end.</p>
+            </article>
+          </div>
+        </div>
+        <div data-lang="zh">
+          <div class="release-head">
+            <div>
+              <h3>CodexTools 1.1.8 新版本内容</h3>
+              <p>
+                这一版重点解决独立安装、桌面启动、官方登录与中转/API 模式切换时的稳定性问题，让非技术用户更容易判断下一步该做什么。
+              </p>
+            </div>
+            <span class="release-badge">v1.1.8</span>
+          </div>
+          <div class="release-grid">
+            <article class="release-item">
+              <strong>独立桌面下载包</strong>
+              <p>macOS 和 Windows 包已经从独立项目发布，下载页提供直接下载入口。</p>
+            </article>
+            <article class="release-item">
+              <strong>中转模式切换</strong>
+              <p>恢复更清晰的模式切换入口，方便在官方登录、兼容 API 和中转流程之间切换。</p>
+            </article>
+            <article class="release-item">
+              <strong>混合 API 重启修复</strong>
+              <p>优化模式切换后的重启处理，减少旧启动状态残留导致的误判。</p>
+            </article>
+            <article class="release-item">
+              <strong>启动器降级处理</strong>
+              <p>当注入失败时，启动器会更平稳地降级处理，避免用户卡在不可理解的失败状态。</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
       <section class="section">
         <div data-lang="en" class="active">

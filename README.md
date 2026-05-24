@@ -49,6 +49,13 @@ go build -o codextools .
 6. Legacy conversation repair
    Provider sync tools help recover visibility for older local conversations.
 
+## New in 1.1.8
+
+- Published standalone macOS and Windows desktop packages from this repository.
+- Restored clearer relay mode switching for official login, compatible API, and relay workflows.
+- Fixed restart handling when users switch mixed API modes.
+- Improved launcher behavior so injection failures degrade more gracefully.
+
 ## Telegram community
 
 Telegram: `https://t.me/wanai8`
