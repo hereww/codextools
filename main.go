@@ -776,8 +776,11 @@ func (r *launcherRuntime) forwardRelayProxy(w http.ResponseWriter, req *http.Req
 	profile := activeRelayProfile(r.settings)
 	baseURL := strings.TrimRight(strings.TrimSpace(profile.BaseURL), "/")
 	apiKey := strings.TrimSpace(profile.APIKey)
+	decision := relayRouteDecision{body: body, route: "text", reason: "default_text"}
 	if profile.Protocol == "responses" && profile.needsLocalRelayProxy() {
-		if isImageRequest(body) && usesSeparateImageGenerationAPI(profile) {
+		decision = decideRelayRoute(body, profile)
+		body = decision.body
+		if decision.useImageAPI && usesSeparateImageGenerationAPI(profile) {
 			baseURL = strings.TrimRight(strings.TrimSpace(profile.ImageGenerationBaseURL), "/")
 			apiKey = strings.TrimSpace(profile.ImageGenerationAPIKey)
 		}
@@ -818,7 +821,14 @@ func (r *launcherRuntime) forwardRelayProxy(w http.ResponseWriter, req *http.Req
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
-	appendDiagnosticLog("relay_proxy.response", map[string]any{"path": req.URL.Path, "status": resp.StatusCode, "target": target})
+	appendDiagnosticLog("relay_proxy.response", map[string]any{
+		"path":                req.URL.Path,
+		"status":              resp.StatusCode,
+		"target":              target,
+		"route":               decision.route,
+		"reason":              decision.reason,
+		"stripped_image_tool": decision.strippedImageTool,
+	})
 }
 
 func relayTargetURL(baseURL, path string) string {
@@ -845,21 +855,211 @@ func copyProxyHeaders(source http.Header, target http.Header) {
 	}
 }
 
-func isImageRequest(body []byte) bool {
+type relayRouteDecision struct {
+	useImageAPI       bool
+	body              []byte
+	route             string
+	reason            string
+	strippedImageTool bool
+}
+
+func decideRelayRoute(body []byte, profile relayProfile) relayRouteDecision {
+	decision := relayRouteDecision{body: body, route: "text", reason: "default_text"}
 	var value map[string]any
 	if json.Unmarshal(body, &value) != nil {
+		decision.reason = "invalid_json"
+		return decision
+	}
+
+	if !profile.ImageGenerationEnabled {
+		decision.reason = "image_disabled"
+		decision.body, decision.strippedImageTool = stripImageGenerationTools(value, body)
+		return decision
+	}
+
+	if usesSeparateImageGenerationAPI(profile) {
+		if relayToolChoiceRequestsImage(value["tool_choice"]) {
+			decision.useImageAPI = true
+			decision.route = "image"
+			decision.reason = "tool_choice_image"
+			return decision
+		}
+		if relayBodyContainsImageGenerationCall(value) {
+			decision.useImageAPI = true
+			decision.route = "image"
+			decision.reason = "image_generation_call"
+			return decision
+		}
+		if relayInputRequestsImage(value["input"]) {
+			decision.useImageAPI = true
+			decision.route = "image"
+			decision.reason = "input_image_intent"
+			return decision
+		}
+	}
+
+	decision.body, decision.strippedImageTool = stripImageGenerationTools(value, body)
+	if decision.strippedImageTool {
+		decision.reason = "text_with_image_tool_stripped"
+	}
+	return decision
+}
+
+func stripImageGenerationTools(value map[string]any, fallback []byte) ([]byte, bool) {
+	stripped := false
+	if tools, ok := value["tools"].([]any); ok && len(tools) > 0 {
+		filtered := make([]any, 0, len(tools))
+		for _, tool := range tools {
+			if relayToolIsImageGeneration(tool) {
+				stripped = true
+				continue
+			}
+			filtered = append(filtered, tool)
+		}
+		if stripped {
+			value["tools"] = filtered
+		}
+	}
+	if relayToolChoiceRequestsImage(value["tool_choice"]) {
+		delete(value, "tool_choice")
+		stripped = true
+	}
+	if !stripped {
+		return fallback, false
+	}
+	updated, err := json.Marshal(value)
+	if err != nil {
+		return fallback, false
+	}
+	return updated, true
+}
+
+func relayToolIsImageGeneration(tool any) bool {
+	object, ok := tool.(map[string]any)
+	if !ok {
 		return false
 	}
-	tools, _ := value["tools"].([]any)
-	for _, tool := range tools {
-		if object, ok := tool.(map[string]any); ok {
-			kind := strings.ToLower(stringFromAny(firstNonNil(object["type"], object["name"])))
-			if strings.Contains(kind, "image") {
+	return relayImageKind(stringFromAny(firstNonNil(object["type"], object["name"])))
+}
+
+func relayToolChoiceRequestsImage(choice any) bool {
+	switch value := choice.(type) {
+	case string:
+		return relayImageKind(value)
+	case map[string]any:
+		return relayImageKind(stringFromAny(firstNonNil(value["type"], value["name"])))
+	default:
+		return false
+	}
+}
+
+func relayBodyContainsImageGenerationCall(value map[string]any) bool {
+	for key, item := range value {
+		if key == "tools" || key == "tool_choice" {
+			continue
+		}
+		if relayNodeContainsImageGenerationCall(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func relayNodeContainsImageGenerationCall(node any) bool {
+	switch value := node.(type) {
+	case map[string]any:
+		kind := strings.ToLower(stringFromAny(firstNonNil(value["type"], value["name"])))
+		if strings.Contains(kind, "image_generation_call") {
+			return true
+		}
+		for key, item := range value {
+			if key == "tools" || key == "tool_choice" {
+				continue
+			}
+			if relayNodeContainsImageGenerationCall(item) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range value {
+			if relayNodeContainsImageGenerationCall(item) {
 				return true
 			}
 		}
 	}
-	return strings.Contains(strings.ToLower(string(body)), "image_generation")
+	return false
+}
+
+func relayInputRequestsImage(input any) bool {
+	for _, text := range relayTextFragments(input) {
+		if relayTextRequestsImage(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func relayTextFragments(node any) []string {
+	var fragments []string
+	var walk func(any)
+	walk = func(item any) {
+		switch value := item.(type) {
+		case string:
+			fragments = append(fragments, value)
+		case []any:
+			for _, child := range value {
+				walk(child)
+			}
+		case map[string]any:
+			if kind := strings.ToLower(stringFromAny(value["type"])); kind != "" && strings.Contains(kind, "image") && !strings.Contains(kind, "text") {
+				return
+			}
+			for key, child := range value {
+				switch key {
+				case "text", "content", "input", "prompt":
+					walk(child)
+				}
+			}
+		}
+	}
+	walk(node)
+	return fragments
+}
+
+func relayTextRequestsImage(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	chineseActions := []string{"生成", "画", "绘制", "创建", "设计", "做"}
+	chineseTargets := []string{"图片", "图像", "图标", "logo"}
+	for _, action := range chineseActions {
+		if strings.Contains(normalized, action) {
+			for _, target := range chineseTargets {
+				if strings.Contains(normalized, target) {
+					return true
+				}
+			}
+		}
+	}
+	englishActions := []string{"generate", "create", "draw", "make", "design"}
+	englishTargets := []string{"image", "picture", "icon", "logo", "illustration"}
+	for _, action := range englishActions {
+		if !strings.Contains(normalized, action) {
+			continue
+		}
+		for _, target := range englishTargets {
+			if strings.Contains(normalized, target) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func relayImageKind(kind string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(kind))
+	return normalized == "image_generation" || normalized == "image_generation_call"
 }
 
 func firstNonNil(values ...any) any {

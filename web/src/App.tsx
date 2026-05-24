@@ -2923,7 +2923,7 @@ function RelayProfileEditor({
                 />
                 <span>
                   <strong>图片生成使用独立 API 和 Key</strong>
-                  <small>仅 Responses API 上游支持；包含图片生成工具的请求会转发到下方图片 API。</small>
+                  <small>仅 Responses API 上游支持；明确图片生成请求才会转发到下方图片 API，普通对话默认走当前中转。</small>
                 </span>
               </label>
               {profile.imageGenerationUseSeparateApi && profile.protocol === "responses" ? (

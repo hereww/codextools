@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseLaunchRequestReadsRestartFlag(t *testing.T) {
 	request := parseLaunchRequest([]string{"--launcher", "--debug-port", "9229", "--helper-port", "57321", "--restart"})
@@ -89,4 +92,113 @@ func TestPickCDPPageTargetFallsBackToFirstPage(t *testing.T) {
 	if target.ID != "page" {
 		t.Fatalf("selected wrong fallback target: %q", target.ID)
 	}
+}
+
+func TestDecideRelayRouteKeepsToolDeclarationOnTextRoute(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":"hi","tools":[{"type":"web_search"},{"type":"image_generation"}]}`)
+	decision := decideRelayRoute(body, relayProfile{
+		ImageGenerationEnabled:        true,
+		ImageGenerationUseSeparateAPI: true,
+		ImageGenerationBaseURL:        "https://image.example/v1",
+		ImageGenerationAPIKey:         "image-key",
+	})
+
+	if decision.useImageAPI {
+		t.Fatal("plain text with image tool declaration should use text relay")
+	}
+	if !decision.strippedImageTool {
+		t.Fatal("image_generation tool should be stripped from text relay requests")
+	}
+	if hasImageGenerationTool(t, decision.body) {
+		t.Fatal("stripped request body still contains image_generation tool")
+	}
+}
+
+func TestDecideRelayRouteUsesImageForExplicitToolChoice(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":"make it","tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`)
+	decision := decideRelayRoute(body, relayProfile{
+		ImageGenerationEnabled:        true,
+		ImageGenerationUseSeparateAPI: true,
+		ImageGenerationBaseURL:        "https://image.example/v1",
+		ImageGenerationAPIKey:         "image-key",
+	})
+
+	if !decision.useImageAPI {
+		t.Fatal("explicit image_generation tool_choice should use image relay")
+	}
+	if decision.strippedImageTool {
+		t.Fatal("image relay requests should keep image_generation tool")
+	}
+	if !hasImageGenerationTool(t, decision.body) {
+		t.Fatal("image relay request lost image_generation tool")
+	}
+}
+
+func TestDecideRelayRouteUsesImageForChineseImageIntent(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":"帮我生成一个猫猫图标","tools":[{"type":"image_generation"}]}`)
+	decision := decideRelayRoute(body, relayProfile{
+		ImageGenerationEnabled:        true,
+		ImageGenerationUseSeparateAPI: true,
+		ImageGenerationBaseURL:        "https://image.example/v1",
+		ImageGenerationAPIKey:         "image-key",
+	})
+
+	if !decision.useImageAPI {
+		t.Fatal("clear Chinese image generation intent should use image relay")
+	}
+	if decision.reason != "input_image_intent" {
+		t.Fatalf("unexpected reason: %q", decision.reason)
+	}
+}
+
+func TestDecideRelayRouteDoesNotUseImageForRelayConfigDiscussion(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":"检查图片中转逻辑 / 图标中转配置","tools":[{"type":"image_generation"}]}`)
+	decision := decideRelayRoute(body, relayProfile{
+		ImageGenerationEnabled:        true,
+		ImageGenerationUseSeparateAPI: true,
+		ImageGenerationBaseURL:        "https://image.example/v1",
+		ImageGenerationAPIKey:         "image-key",
+	})
+
+	if decision.useImageAPI {
+		t.Fatal("discussion about image relay config should not use image relay")
+	}
+	if !decision.strippedImageTool {
+		t.Fatal("image_generation tool should be stripped for config discussion")
+	}
+}
+
+func TestDecideRelayRouteStripsImageToolWhenImageDisabled(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":"帮我生成一个猫猫图标","tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`)
+	decision := decideRelayRoute(body, relayProfile{
+		ImageGenerationEnabled:        false,
+		ImageGenerationUseSeparateAPI: true,
+		ImageGenerationBaseURL:        "https://image.example/v1",
+		ImageGenerationAPIKey:         "image-key",
+	})
+
+	if decision.useImageAPI {
+		t.Fatal("disabled image generation should always use text relay")
+	}
+	if !decision.strippedImageTool {
+		t.Fatal("disabled image generation should strip image_generation tool")
+	}
+	if hasImageGenerationTool(t, decision.body) {
+		t.Fatal("disabled image generation request still contains image_generation tool")
+	}
+}
+
+func hasImageGenerationTool(t *testing.T, body []byte) bool {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		t.Fatalf("failed to unmarshal body: %v", err)
+	}
+	tools, _ := value["tools"].([]any)
+	for _, tool := range tools {
+		if object, ok := tool.(map[string]any); ok && object["type"] == "image_generation" {
+			return true
+		}
+	}
+	return false
 }
