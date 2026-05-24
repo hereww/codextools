@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodexTools</title>
+    <style>
+      :root {
+        --bg: #eef5fb;
+        --card: rgba(255, 255, 255, 0.88);
+        --text: #142033;
+        --muted: #536076;
+        --line: rgba(116, 142, 175, 0.24);
+        --primary: #1367d1;
+        --primary-soft: #dbeafe;
+        --accent: #0f766e;
+        --shadow: 0 22px 64px rgba(35, 58, 99, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top right, rgba(139, 199, 255, 0.32), transparent 24%),
+          radial-gradient(circle at top left, rgba(120, 226, 183, 0.18), transparent 22%),
+          var(--bg);
+      }
+
+      .page {
+        width: min(1160px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 28px 0 56px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 54px);
+        line-height: 1;
+      }
+
+      .brand p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+        max-width: 760px;
+      }
+
+      .lang-switch {
+        display: inline-flex;
+        gap: 8px;
+      }
+
+      .lang-switch button {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--card);
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        padding: 10px 16px;
+      }
+
+      .lang-switch button.active {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+
+      .hero,
+      .section {
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 20px;
+        padding: 24px;
+      }
+
+      .hero-copy h2 {
+        margin: 0;
+        font-size: clamp(28px, 3vw, 44px);
+        line-height: 1.08;
+      }
+
+      .hero-copy p {
+        margin: 16px 0 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .hero-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .hero-links a {
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+        padding: 11px 16px;
+      }
+
+      .hero-links a.primary {
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .hero-links a.secondary {
+        background: var(--primary-soft);
+        color: var(--primary);
+      }
+
+      .hero-shot img,
+      .telegram img {
+        display: block;
+        width: 100%;
+        border-radius: 24px;
+        border: 1px solid var(--line);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.74);
+        padding: 20px;
+      }
+
+      .card h3,
+      .section h3 {
+        margin: 0 0 10px;
+        font-size: 22px;
+      }
+
+      .card p,
+      .section p,
+      .section li {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .section {
+        margin-top: 18px;
+        padding: 24px;
+      }
+
+      .feature-list {
+        display: grid;
+        gap: 14px;
+        padding: 0;
+        list-style: none;
+        margin: 18px 0 0;
+      }
+
+      .feature-list li {
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 14px 16px;
+      }
+
+      .feature-list strong {
+        color: var(--text);
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .telegram {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 20px;
+        align-items: center;
+      }
+
+      .telegram a {
+        color: var(--accent);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      [data-lang] { display: none; }
+      [data-lang].active { display: block; }
+
+      @media (max-width: 920px) {
+        .hero,
+        .grid,
+        .telegram {
+          grid-template-columns: 1fr;
+        }
+
+        .topbar {
+          align-items: start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <div class="brand">
+          <h1>CodexTools</h1>
+          <p data-lang="en" class="active">
+            A standalone manager extracted from the Codex++ Go refactor, designed to make launch, relay setup, script management, diagnostics, and repair workflows clearer for non-technical users.
+          </p>
+          <p data-lang="zh">
+            这是从 Codex++ Go 重构版中独立拆出的管理器项目，目标是把启动、Relay 配置、脚本管理、诊断和修复流程做得更适合非技术用户。
+          </p>
+        </div>
+        <div class="lang-switch">
+          <button class="active" data-switch="en" type="button">English</button>
+          <button data-switch="zh" type="button">中文</button>
+        </div>
+      </div>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <div data-lang="en" class="active">
+            <h2>One repository for the refactored manager, ready to ship on its own.</h2>
+            <p>
+              CodexTools keeps the refactored Go backend and the redesigned React manager UI in one standalone project. It reduces monorepo coupling, preserves the existing command surface, and presents a simpler interface for setup, launch, and recovery.
+            </p>
+            <div class="hero-links">
+              <a class="primary" href="../README.md">Open README</a>
+              <a class="secondary" href="https://t.me/wanai8">Telegram</a>
+            </div>
+          </div>
+          <div data-lang="zh">
+            <h2>把重构后的管理器独立成一个可以单独发布的仓库。</h2>
+            <p>
+              CodexTools 把 Go 后端和重新设计后的 React 管理界面放进同一个独立项目中，降低对原单体仓库的路径依赖，同时保留原有命令能力，并把配置、启动和修复流程做得更直观。
+            </p>
+            <div class="hero-links">
+              <a class="primary" href="../README.zh-CN.md">查看说明</a>
+              <a class="secondary" href="https://t.me/wanai8">电报群</a>
+            </div>
+          </div>
+        </div>
+        <div class="hero-shot">
+          <img src="./assets/manager-desktop.png" alt="CodexTools manager screenshot" />
+        </div>
+      </section>
+
+      <div class="grid">
+        <article class="card">
+          <div data-lang="en" class="active">
+            <h3>Standalone structure</h3>
+            <p>The web UI lives in `web/`, the backend lives in `main.go`, and the app can be built without the original monorepo.</p>
+          </div>
+          <div data-lang="zh">
+            <h3>独立结构</h3>
+            <p>前端在 `web/`，后端在 `main.go`，整个项目不再依赖原始单体仓库才能构建。</p>
+          </div>
+        </article>
+        <article class="card">
+          <div data-lang="en" class="active">
+            <h3>Practical UI</h3>
+            <p>The first screen prioritizes launch, connection, health checks, and repair actions instead of exposing every setting up front.</p>
+          </div>
+          <div data-lang="zh">
+            <h3>实用界面</h3>
+            <p>首页优先展示启动、连接、状态检查和修复入口，而不是一开始就把所有设置堆出来。</p>
+          </div>
+        </article>
+        <article class="card">
+          <div data-lang="en" class="active">
+            <h3>Operations built in</h3>
+            <p>Relay setup, script market operations, diagnostics, logs, and legacy conversation repair remain available inside one manager.</p>
+          </div>
+          <div data-lang="zh">
+            <h3>运维能力内置</h3>
+            <p>Relay 配置、脚本市场、诊断报告、日志和旧对话修复都保留在同一个管理器中。</p>
+          </div>
+        </article>
+      </div>
+
+      <section class="section">
+        <div data-lang="en" class="active">
+          <h3>Detailed feature layout</h3>
+          <ul class="feature-list">
+            <li><strong>Home surface</strong>Launch, inspect current status, and jump directly to the next repair action.</li>
+            <li><strong>Connection management</strong>Configure official login, compatible APIs, relay profiles, protocols, and relay tests.</li>
+            <li><strong>Enhancement controls</strong>Toggle UI enhancement capabilities and switch launch behavior by mode.</li>
+            <li><strong>Script center</strong>Install, enable, disable, update, and remove user scripts from one place.</li>
+            <li><strong>Repair and maintenance</strong>Fix entry paths, shortcuts, backend state, and other local setup issues.</li>
+            <li><strong>Logs and diagnostics</strong>Expose readable runtime logs and copyable diagnostics for support workflows.</li>
+          </ul>
+        </div>
+        <div data-lang="zh">
+          <h3>功能详细布置</h3>
+          <ul class="feature-list">
+            <li><strong>首页启动面板</strong>直接启动、查看当前状态，并跳到下一步需要处理的修复动作。</li>
+            <li><strong>连接方式管理</strong>配置官方登录、兼容 API、中转配置、协议和连通性测试。</li>
+            <li><strong>增强功能控制</strong>统一管理增强功能，并按模式切换启动行为。</li>
+            <li><strong>脚本中心</strong>在同一处完成用户脚本安装、启用、禁用、更新和移除。</li>
+            <li><strong>修复与维护</strong>处理入口路径、快捷方式、后端状态和其他本地环境问题。</li>
+            <li><strong>日志与诊断</strong>提供可读日志和可复制诊断报告，方便排查和支持沟通。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section telegram">
+        <img src="./assets/telegram-qr.png" alt="Telegram QR code" />
+        <div>
+          <div data-lang="en" class="active">
+            <h3>Telegram community</h3>
+            <p>Join the user group for installation help, relay setup questions, and release follow-up.</p>
+            <p><a href="https://t.me/wanai8">https://t.me/wanai8</a></p>
+          </div>
+          <div data-lang="zh">
+            <h3>Telegram 交流群</h3>
+            <p>用于安装协助、Relay 配置交流和版本更新跟进。</p>
+            <p><a href="https://t.me/wanai8">https://t.me/wanai8</a></p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const buttons = document.querySelectorAll("[data-switch]");
+      const blocks = document.querySelectorAll("[data-lang]");
+
+      function setLanguage(lang) {
+        document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+        buttons.forEach((button) => {
+          button.classList.toggle("active", button.getAttribute("data-switch") === lang);
+        });
+        blocks.forEach((block) => {
+          block.classList.toggle("active", block.getAttribute("data-lang") === lang);
+        });
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => setLanguage(button.getAttribute("data-switch")));
+      });
+
+      setLanguage("en");
+    </script>
+  </body>
+</html>

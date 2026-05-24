@@ -1,0 +1,7 @@
+web/node_modules/
+web/dist/
+.venv/
+codextools
+codextools.exe
+*.log
+.DS_Store
