@@ -186,6 +186,9 @@ func main() {
 	if shouldRunLauncher(os.Args) {
 		err = runLauncher(os.Args[1:])
 	} else {
+		if defaultManagerDesktop() {
+			lockManagerDesktopThread()
+		}
 		err = runManager()
 	}
 	if err != nil {
@@ -213,6 +216,26 @@ func runManager() error {
 	defer listener.Close()
 	url := "http://" + listener.Addr().String()
 	fmt.Printf("%s Go manager: %s\n", appName, url)
+	if defaultManagerDesktop() {
+		server := &http.Server{Handler: mux}
+		serverErr := make(chan error, 1)
+		go func() {
+			if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				serverErr <- err
+			}
+			close(serverErr)
+		}()
+		if err := runManagerDesktopWindow(managerName, url); err != nil {
+			return err
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		if err, ok := <-serverErr; ok {
+			return err
+		}
+		return nil
+	}
 	_ = openURL(url)
 	return http.Serve(listener, mux)
 }
@@ -690,8 +713,22 @@ func normalizeSettings(settings backendSettings) backendSettings {
 		if settings.RelayProfiles[index].Protocol == "" {
 			settings.RelayProfiles[index].Protocol = "responses"
 		}
-		if settings.RelayProfiles[index].RelayMode == "" {
-			settings.RelayProfiles[index].RelayMode = "official"
+		switch settings.RelayProfiles[index].RelayMode {
+		case "mixedApi":
+			settings.RelayProfiles[index].OfficialMixAPIKey = true
+		case "pureApi":
+			settings.RelayProfiles[index].OfficialMixAPIKey = false
+		case "official":
+			if settings.RelayProfiles[index].OfficialMixAPIKey {
+				settings.RelayProfiles[index].RelayMode = "mixedApi"
+			}
+		default:
+			if settings.RelayProfiles[index].OfficialMixAPIKey {
+				settings.RelayProfiles[index].RelayMode = "mixedApi"
+			} else {
+				settings.RelayProfiles[index].RelayMode = "official"
+				settings.RelayProfiles[index].OfficialMixAPIKey = false
+			}
 		}
 	}
 	if settings.ActiveRelayID == "" {
@@ -2442,29 +2479,33 @@ func (s *server) applyRelayInjection(pure bool) commandResult {
 	home := codexHomeDir()
 	settings := loadSettings()
 	relay := activeRelayProfile(settings)
-	if strings.TrimSpace(relay.ConfigContents) != "" && strings.TrimSpace(relay.AuthContents) != "" {
+	useSavedFiles := strings.TrimSpace(relay.ConfigContents) != "" &&
+		(strings.TrimSpace(relay.AuthContents) != "" || relay.RelayMode == "mixedApi")
+	if !pure && relay.RelayMode == "mixedApi" && !chatGPTAuthStatus(home).Authenticated {
+		return failed("未检测到 ChatGPT 登录状态，已停止写入中转配置。", relayStatusFromHome(home))
+	}
+	if !pure && useSavedFiles {
 		if err := os.MkdirAll(home, 0o755); err != nil {
 			return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
 		}
 		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(relay.ConfigContents), 0o644); err != nil {
 			return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
 		}
-		if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(relay.AuthContents), 0o644); err != nil {
-			return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
+		if strings.TrimSpace(relay.AuthContents) != "" {
+			if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(relay.AuthContents), 0o644); err != nil {
+				return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
+			}
 		}
 		return ok("已切换到当前中转的完整 config.toml / auth.json。", relayStatusFromHome(home))
 	}
-	if !pure && !chatGPTAuthStatus(home).Authenticated {
-		return failed("未检测到 ChatGPT 登录状态，已停止写入中转配置。", relayStatusFromHome(home))
-	}
 	if err := applyRelayConfig(home, relay, pure); err != nil {
 		if pure {
-			return failed("写入纯 API 模式失败："+err.Error(), relayStatusFromHome(home))
+			return failed("写入中转 API 模式失败："+err.Error(), relayStatusFromHome(home))
 		}
 		return failed("写入中转配置失败："+err.Error(), relayStatusFromHome(home))
 	}
 	if pure {
-		return ok("纯 API 模式已写入：auth.json 已切换为 OPENAI_API_KEY，config.toml 已写入 CodexPlusPlus provider。", relayStatusFromHome(home))
+		return ok("中转 API 模式已写入：auth.json 已切换为 OPENAI_API_KEY，config.toml 已写入 CodexPlusPlus provider。", relayStatusFromHome(home))
 	}
 	return ok("中转配置已写入，密钥未在界面明文显示。", relayStatusFromHome(home))
 }
@@ -2482,6 +2523,9 @@ func activeRelayProfile(settings backendSettings) relayProfile {
 }
 
 func applyRelayConfig(home string, relay relayProfile, pure bool) error {
+	if !pure && relay.RelayMode == "official" {
+		return errors.New("官方登录模式不需要写入 API 配置")
+	}
 	baseURL := effectiveBaseURL(relay)
 	if strings.TrimSpace(baseURL) == "" {
 		return errors.New("中转 Base URL 不能为空")

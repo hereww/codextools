@@ -616,7 +616,7 @@ export function App() {
     if (result) {
       setRelay(result);
       await refreshRelayFiles(true);
-      if (!silent || !isSuccessStatus(result.status)) showNotice("官方混入 API Key", result.message, result.status);
+      if (!silent || !isSuccessStatus(result.status)) showNotice("官方混合 API", result.message, result.status);
     }
     return !!result && isSuccessStatus(result.status) && result.configured;
   };
@@ -649,7 +649,7 @@ export function App() {
     if (result) {
       setRelay(result);
       await refreshRelayFiles(true);
-      if (!silent || !isSuccessStatus(result.status)) showNotice("纯 API 模式", result.message, result.status);
+      if (!silent || !isSuccessStatus(result.status)) showNotice("中转 API 模式", result.message, result.status);
     }
     return !!result && isSuccessStatus(result.status) && result.configured;
   };
@@ -691,11 +691,11 @@ export function App() {
     const switched = await applyPureApiInjection(true);
     if (!switched) return;
     const result = await saveLaunchMode("patch", true);
-    if (result) showNotice("纯 API 模式", "已切换到纯 API；页面增强已设为完整增强。", result.status);
+    if (result) showNotice("中转 API 模式", "已切换到中转 API；页面增强已设为完整增强。", result.status);
   };
 
   const switchRelayProfile = async (next: BackendSettings) => {
-    const nextWithSnapshot = await snapshotActiveRelayFilesBeforeSwitch(next);
+    const nextWithSnapshot = await snapshotActiveRelayFilesBeforeSwitch(prepareRelaySettingsForSwitch(next));
     if (!nextWithSnapshot) return;
 
     const selectedBeforeSave = activeRelayProfile(nextWithSnapshot);
@@ -921,9 +921,9 @@ export function App() {
           <div className="brand-mark">C</div>
           <div className="brand-copy">
             <div className="brand-title-row">
-              <div className="brand-title">CodexTools</div>
+              <div className="brand-title">Codex++</div>
             </div>
-            <div className="brand-subtitle">简单管理 Codex 工作流</div>
+            <div className="brand-subtitle">简单管理 Codex</div>
           </div>
         </div>
         <nav className="nav">
@@ -948,7 +948,7 @@ export function App() {
             <p>{routeSubtitle(route)}</p>
           </div>
           <div className="topbar-actions">
-            <Button onClick={() => void actions.launch()} title="启动 CodexTools">
+            <Button onClick={() => void actions.launch()} title="启动 Codex++">
               <Rocket className="h-4 w-4" />
               启动
             </Button>
@@ -1099,7 +1099,7 @@ function OverviewScreen({
     <>
       <section className="home-hero" aria-label="快速启动">
         <div className="home-hero-main">
-          <div className="home-kicker">CodexTools</div>
+          <div className="home-kicker">Codex++ 管理器</div>
           <h2>{allReady ? "一切就绪，可以开始使用" : "先处理一个小问题，再启动"}</h2>
           <p>
             这里保留最常用的操作。普通使用只需要点击启动；连接服务、修复入口和查看日志都放在看得见的位置。
@@ -1107,8 +1107,8 @@ function OverviewScreen({
           <div className="home-command">
             <div>
               <span>推荐操作</span>
-              <strong>{allReady ? "打开 CodexTools" : primaryIssue?.title ?? "检查状态"}</strong>
-              <small>{allReady ? "使用当前设置启动管理器。" : primaryIssue?.detail ?? "刷新状态并查看需要处理的项目。"}</small>
+              <strong>{allReady ? "打开 Codex++" : primaryIssue?.title ?? "检查状态"}</strong>
+              <small>{allReady ? "使用当前设置启动 Codex。" : primaryIssue?.detail ?? "刷新状态并查看需要处理的项目。"}</small>
             </div>
             <Button onClick={() => void actions.launch()} size="lg" className="home-primary-button">
               <Rocket className="h-4 w-4" />
@@ -1178,7 +1178,7 @@ function OverviewScreen({
             <GuideList
               items={[
                 "点击“立即启动”，用当前设置打开 Codex。",
-                "如果要使用 API，进入“连接服务”选择官方登录或纯 API。",
+                "如果要使用 API，进入“连接服务”选择官方登录、官方混合 API 或中转 API。",
                 "如果桌面入口、路径或启动异常，进入“修复工具”检查。",
               ]}
             />
@@ -1745,10 +1745,10 @@ function AboutScreen({
   return (
     <>
       <Panel>
-        <CardHead title="关于 CodexTools" detail="本地 Codex 工作流增强、管理工具和安装包维护" />
+        <CardHead title="关于 Codex++" detail="本地 Codex 增强、管理工具和安装包维护" />
         <CardContent>
           <div className="metric-list">
-            <Metric label="CodexTools 版本" value={overview?.current_version ?? "-"} />
+            <Metric label="Codex++ 版本" value={overview?.current_version ?? "-"} />
             <Metric label="Codex 版本" value={overview?.codex_version ?? "未检测到"} />
             <Metric label="项目地址" value="github.com/BigPizzaV3/CodexPlusPlus" />
           </div>
@@ -2148,8 +2148,9 @@ function RelayProfileDetail({
     const next = isNew ? addRelayProfile(form, draft) : updateRelayProfile(form, profile.id, draft);
     onFormChange(next);
     if (isActive) {
-      await actions.saveRelayFile("config", draft.configContents, true);
-      await actions.saveRelayFile("auth", draft.authContents, true);
+      const files = withGeneratedRelayFiles(draft);
+      if (files.configContents.trim()) await actions.saveRelayFile("config", files.configContents, true);
+      if (files.authContents.trim()) await actions.saveRelayFile("auth", files.authContents, true);
     }
     onSaved?.();
   };
@@ -2193,7 +2194,7 @@ function RelayProfileEditor({
   onProfileChange: (value: RelayProfile) => void;
   onSwitch: () => void;
 }) {
-  const showApiFields = profile.relayMode !== "official" || profile.officialMixApiKey;
+  const showApiFields = profile.relayMode !== "official";
   const updateDraft = (patch: Partial<RelayProfile>) => {
     const shouldRegenerateFiles = [
       "baseUrl",
@@ -2238,11 +2239,15 @@ function RelayProfileEditor({
             value={profile.relayMode}
             onChange={(event) => {
               const relayMode = event.currentTarget.value as RelayMode;
-              updateDraft(relayMode === "official" ? { relayMode, officialMixApiKey: false } : { relayMode });
+              updateDraft({
+                relayMode,
+                officialMixApiKey: relayMode === "mixedApi",
+              });
             }}
           >
             <option value="official">官方登录</option>
-            <option value="pureApi">纯 API</option>
+            <option value="mixedApi">官方混合 API</option>
+            <option value="pureApi">中转 API</option>
           </select>
         </Field>
         <Field className="relay-field-test-model" label="测试模型">
@@ -2252,18 +2257,6 @@ function RelayProfileEditor({
             placeholder={`留空使用默认：${form.relayTestModel || defaultSettings.relayTestModel}`}
           />
         </Field>
-        {profile.relayMode === "official" ? (
-          <Field className="relay-field-official-key" label="API Key">
-            <label className="inline-check">
-              <input
-                checked={profile.officialMixApiKey}
-                onChange={(event) => updateDraft({ officialMixApiKey: event.currentTarget.checked })}
-                type="checkbox"
-              />
-              <span>混入 API KEY</span>
-            </label>
-          </Field>
-        ) : null}
         {showApiFields ? (
           <>
             <Field className="relay-field-base-url" label="Base URL">
@@ -2429,7 +2422,7 @@ function ModeSelector({ launchMode, actions }: { launchMode: LaunchMode; actions
         type="button"
       >
         <strong>兼容增强</strong>
-        <span>适合官方登录或官方混入 API Key；保留会话删除、导出、项目移动、Timeline 和用户脚本，关闭插件入口相关增强。</span>
+        <span>适合官方登录或官方混合 API；保留会话删除、导出、项目移动、Timeline 和用户脚本，关闭插件入口相关增强。</span>
       </button>
       <button
         className={`mode-option ${launchMode === "patch" ? "active" : ""}`}
@@ -2437,7 +2430,7 @@ function ModeSelector({ launchMode, actions }: { launchMode: LaunchMode; actions
         type="button"
       >
         <strong>完整增强</strong>
-        <span>适合纯 API；启用插件入口、强制安装、会话删除导出、项目移动等全部页面能力。</span>
+        <span>适合中转 API；启用插件入口、强制安装、会话删除导出、项目移动等全部页面能力。</span>
       </button>
     </div>
   );
@@ -2649,7 +2642,7 @@ function isSuccessStatus(status?: Status) {
 
 function apiModeLabel(relay: RelayResult | null) {
   if (!relay?.configured) return "官方登录";
-  return relay.authenticated ? "官方混入 API Key" : "纯 API";
+  return relay.authenticated ? "官方混合 API" : "中转 API";
 }
 
 function healthItems(overview: OverviewResult | null, relay: RelayResult | null) {
@@ -2676,7 +2669,7 @@ function healthItems(overview: OverviewResult | null, relay: RelayResult | null)
       title: "ChatGPT 登录",
       status: relay?.authenticated ? "ok" : "missing",
       ok: !!relay?.authenticated,
-      detail: relay?.accountLabel || relay?.authSource || "官方混入 API Key 需要官方登录；纯 API 可不用官方登录。",
+      detail: relay?.accountLabel || relay?.authSource || "官方混合 API 需要官方登录；中转 API 可不用官方登录。",
     },
   ];
 }
@@ -2718,7 +2711,12 @@ function inputToCodexExtraArgs(value: string) {
 }
 
 function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
-  const legacyMixedApi = profile.relayMode === "mixedApi";
+  const relayMode =
+    profile.relayMode === "pureApi"
+      ? "pureApi"
+      : profile.relayMode === "mixedApi" || profile.officialMixApiKey === true
+        ? "mixedApi"
+        : normalizeRelayMode(profile.relayMode);
   const normalized: RelayProfile = {
     ...profile,
     imageGenerationEnabled: Boolean(profile.imageGenerationEnabled),
@@ -2726,8 +2724,8 @@ function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
     imageGenerationBaseUrl: profile.imageGenerationBaseUrl || "",
     imageGenerationApiKey: profile.imageGenerationApiKey || "",
     protocol: profile.protocol === "chatCompletions" ? "chatCompletions" : "responses",
-    relayMode: normalizeRelayMode(profile.relayMode),
-    officialMixApiKey: profile.officialMixApiKey === true || legacyMixedApi,
+    relayMode,
+    officialMixApiKey: relayMode === "mixedApi",
     testModel: profile.testModel || "",
     configContents: profile.configContents || "",
     authContents: profile.authContents || "",
@@ -2752,16 +2750,19 @@ function relayProtocolLabel(protocol: RelayProtocol): string {
 
 function normalizeRelayMode(mode: RelayMode | undefined): RelayMode {
   if (mode === "pureApi") return mode;
+  if (mode === "mixedApi") return mode;
   return "official";
 }
 
 function relayModeLabel(mode: RelayMode): string {
-  if (mode === "pureApi") return "纯 API";
+  if (mode === "pureApi") return "中转 API";
+  if (mode === "mixedApi") return "官方混合 API";
   return "官方登录";
 }
 
 function relayProfileConfigBrief(profile: RelayProfile): string {
-  if (profile.relayMode === "official") return profile.officialMixApiKey ? "混入 API Key" : "不写 API 文件";
+  if (profile.relayMode === "official") return "不写 API 文件";
+  if (profile.relayMode === "mixedApi") return "混入 API Key";
   return profile.baseUrl || "未填写 URL";
 }
 
@@ -2773,44 +2774,54 @@ function relayImageModeLabel(profile: RelayProfile): string {
 
 function relayProfileModeHelp(profile: RelayProfile): string {
   if (profile.relayMode === "official") {
-    if (profile.officialMixApiKey) {
-      return "此供应商会保留官方登录模式，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
-    }
     return "此供应商会切回官方登录模式，使用 ChatGPT 官方账号，不写入 API Key。";
   }
-  if (profile.relayMode === "pureApi") {
-    return "此供应商会完整写入 config.toml / auth.json，并启用完整页面增强。";
+  if (profile.relayMode === "mixedApi") {
+    return "此供应商会保留官方登录模式，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
   }
-  return "此供应商会保留官方登录模式，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
+  if (profile.relayMode === "pureApi") {
+    return "此供应商会按中转 API 模式完整写入 config.toml / auth.json，并启用完整页面增强。";
+  }
+  return "";
 }
 
 function relayProfileReadinessText(profile: RelayProfile, relay: RelayResult | null): string {
   if (profile.relayMode === "official") {
-    if (profile.officialMixApiKey) {
-      const hasApiFields = profile.baseUrl.trim() && profile.apiKey.trim();
-      if (!relay?.authenticated && !hasApiFields) return "当前未登录官方账号，也未配置混入 API 的 Base URL / Key。";
-      if (!relay?.authenticated) return "当前未登录官方账号；官方登录混入 API Key 需要先登录官方账号。";
-      if (!hasApiFields) return "当前还没有填写混入 API 的 Base URL / Key。";
-      return `官方登录已就绪：${relay.accountLabel || "已登录"}，会混入当前 API Key。`;
-    }
     return relay?.authenticated
       ? `官方账号已登录：${relay.accountLabel || relay.authSource || "已检测"}。`
       : "当前未登录官方账号；切到官方登录模式后仍需要先在 Codex/ChatGPT 登录。";
   }
+  if (profile.relayMode === "mixedApi") {
+    const hasApiFields = profile.baseUrl.trim() && profile.apiKey.trim();
+    if (!relay?.authenticated && !hasApiFields) return "当前未登录官方账号，也未配置混入 API 的 Base URL / Key。";
+    if (!relay?.authenticated) return "当前未登录官方账号；官方混合 API 需要先登录官方账号。";
+    if (!hasApiFields) return "当前还没有填写混入 API 的 Base URL / Key。";
+    return `官方登录已就绪：${relay.accountLabel || "已登录"}，会混入当前 API Key。`;
+  }
   const hasFiles = profile.configContents.trim() && profile.authContents.trim();
-  if (!hasFiles) return "当前供应商还没有完整 config.toml / auth.json。";
-  return "纯 API 就绪：会直接写入此供应商的完整 config.toml / auth.json。";
+  if (!hasFiles) return "当前中转还没有完整 config.toml / auth.json。";
+  return "中转 API 就绪：会直接写入此供应商的完整 config.toml / auth.json。";
+}
+
+function prepareRelaySettingsForSwitch(settings: BackendSettings): BackendSettings {
+  const activeId = activeRelayProfile(settings).id;
+  return syncLegacyRelayFields({
+    ...settings,
+    relayProfiles: settings.relayProfiles.map((profile) => (
+      profile.id === activeId ? withGeneratedRelayFiles(profile) : profile
+    )),
+  });
 }
 
 function relayProfileSwitchCommand(profile: RelayProfile): "clear_relay_injection" | "apply_relay_injection" | "apply_pure_api_injection" {
   if (profile.relayMode === "pureApi") return "apply_pure_api_injection";
-  if (profile.configContents.trim() && profile.authContents.trim()) return "apply_relay_injection";
-  return profile.officialMixApiKey ? "apply_relay_injection" : "clear_relay_injection";
+  if (profile.relayMode === "mixedApi") return "apply_relay_injection";
+  return "clear_relay_injection";
 }
 
 function relayProfileModeSwitchedText(profile: RelayProfile): string {
-  if (profile.relayMode === "pureApi") return "已按此供应商切换到纯 API；页面增强已设为完整增强。";
-  if (profile.officialMixApiKey) return "已按此供应商使用官方登录，并混入 API Key；页面增强已设为兼容增强。";
+  if (profile.relayMode === "pureApi") return "已按此供应商切换到中转 API；页面增强已设为完整增强。";
+  if (profile.relayMode === "mixedApi") return "已按此供应商使用官方登录，并混入 API Key；页面增强已设为兼容增强。";
   return "已按此供应商切回官方登录；页面增强已设为兼容增强。";
 }
 
@@ -2818,12 +2829,22 @@ function withGeneratedRelayFiles(profile: RelayProfile): RelayProfile {
   if (profile.relayMode === "official") {
     return {
       ...profile,
-      configContents: profile.officialMixApiKey ? buildRelayConfigToml(profile) : "",
+      officialMixApiKey: false,
+      configContents: "",
+      authContents: "",
+    };
+  }
+  if (profile.relayMode === "mixedApi") {
+    return {
+      ...profile,
+      officialMixApiKey: true,
+      configContents: buildRelayConfigToml(profile),
       authContents: "",
     };
   }
   return {
     ...profile,
+    officialMixApiKey: false,
     configContents: buildRelayConfigToml(profile),
     authContents: buildRelayAuthJson(profile),
   };
@@ -2876,13 +2897,18 @@ function buildRelayAuthJson(profile: Pick<RelayProfile, "apiKey">): string {
 }
 
 function relayProfileSwitchValidation(profile: RelayProfile): string | null {
-  if (profile.relayMode === "official" && !profile.officialMixApiKey) return null;
-  if (!profile.configContents.trim()) {
-    return `供应商「${profile.name || profile.id}」缺少独立 config.toml，已停止切换，避免继续显示上一套配置文件。请先在该供应商详情里保存 config.toml。`;
+  if (profile.relayMode === "official") return null;
+  if (!profile.baseUrl.trim()) {
+    return `供应商「${profile.name || profile.id}」缺少 Base URL，已停止切换。`;
   }
-  if (profile.relayMode !== "official" || !authJsonHasOpenAiApiKey(profile.authContents)) return null;
-  const mode = profile.officialMixApiKey ? "官方混合 API" : "官方登录";
-  return `${mode} 的 auth.json 检测到 OPENAI_API_KEY，这通常是纯 API 登录态。请检查此供应商的 auth.json，确认它是 ChatGPT 官方登录态后再切换。`;
+  if (!profile.apiKey.trim()) {
+    return `供应商「${profile.name || profile.id}」缺少 API Key，已停止切换。`;
+  }
+  if (profile.imageGenerationEnabled && profile.imageGenerationUseSeparateApi) {
+    if (!profile.imageGenerationBaseUrl.trim()) return `供应商「${profile.name || profile.id}」缺少图片 Base URL，已停止切换。`;
+    if (!profile.imageGenerationApiKey.trim()) return `供应商「${profile.name || profile.id}」缺少图片 Key，已停止切换。`;
+  }
+  return null;
 }
 
 function authJsonHasOpenAiApiKey(contents: string): boolean {
