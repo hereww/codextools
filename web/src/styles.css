@@ -703,6 +703,58 @@ body {
   padding: 7px 0;
 }
 
+.mode-switch-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.mode-switch-button {
+  display: grid;
+  gap: 5px;
+  min-height: 86px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  background: hsl(var(--background) / 0.74);
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  padding: 13px 14px;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.mode-switch-button strong {
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.mode-switch-button span {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mode-switch-button:hover,
+.mode-switch-button:focus-visible {
+  border-color: hsl(var(--ring) / 0.45);
+  outline: none;
+}
+
+.mode-switch-button.active {
+  border-color: hsl(var(--ring) / 0.58);
+  background: linear-gradient(135deg, hsl(216 100% 96%), hsl(164 76% 95%));
+  box-shadow: 0 12px 26px hsl(217 89% 56% / 0.11);
+}
+
+.dark .mode-switch-button.active {
+  background: linear-gradient(135deg, hsl(217 72% 22% / 0.7), hsl(160 55% 18% / 0.68));
+}
+
 .relay-profile-list,
 .health-grid,
 .feature-list,
@@ -1529,6 +1581,7 @@ body {
   .relay-file-grid,
   .mode-grid,
   .mode-grid.three,
+  .mode-switch-panel,
   .relay-grid {
     grid-template-columns: 1fr;
   }

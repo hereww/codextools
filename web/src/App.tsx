@@ -1321,6 +1321,19 @@ function RelayScreen({
 }) {
   const normalized = normalizeSettings(form);
   const active = activeRelayProfile(normalized);
+  const switchActiveMode = (relayMode: RelayMode) => {
+    const nextProfile = withGeneratedRelayFiles({
+      ...active,
+      relayMode,
+      officialMixApiKey: relayMode === "mixedApi",
+    });
+    const next = syncLegacyRelayFields({
+      ...normalized,
+      relayProfiles: normalized.relayProfiles.map((profile) => (profile.id === active.id ? nextProfile : profile)),
+      activeRelayId: active.id,
+    });
+    void actions.switchRelayProfile(next);
+  };
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
   const [newProfileDraft, setNewProfileDraft] = useState<RelayProfile | null>(null);
   const detailProfile = newProfileDraft || (detailProfileId
@@ -1387,6 +1400,32 @@ function RelayScreen({
           <div className="hint-line">
             <ShieldCheck className="h-4 w-4" />
             <span>{relayProfileReadinessText(active, relay)}</span>
+          </div>
+          <div className="mode-switch-panel" aria-label="切换当前模式">
+            <button
+              className={`mode-switch-button ${active.relayMode === "official" ? "active" : ""}`}
+              onClick={() => switchActiveMode("official")}
+              type="button"
+            >
+              <strong>官方模式</strong>
+              <span>只使用 ChatGPT 官方登录，不写入中转 API。</span>
+            </button>
+            <button
+              className={`mode-switch-button ${active.relayMode === "mixedApi" ? "active" : ""}`}
+              onClick={() => switchActiveMode("mixedApi")}
+              type="button"
+            >
+              <strong>混合 API 模式</strong>
+              <span>保留官方登录，同时混入当前供应商 API Key。</span>
+            </button>
+            <button
+              className={`mode-switch-button ${active.relayMode === "pureApi" ? "active" : ""}`}
+              onClick={() => switchActiveMode("pureApi")}
+              type="button"
+            >
+              <strong>中转模式</strong>
+              <span>完整写入 config.toml / auth.json 使用中转。</span>
+            </button>
           </div>
           {relay?.backupPath ? <div className="path-line compact-path">备份：{relay.backupPath}</div> : null}
         </CardContent>
