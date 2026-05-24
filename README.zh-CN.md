@@ -49,19 +49,9 @@ go build -o codextools .
 6. 历史对话修复
    提供旧会话提供商归属修复能力，减少“记录看不见”的问题。
 
-## 截图
-
-桌面版界面：
-
-![Desktop manager](./docs/assets/manager-desktop.png)
-
 ## 电报群
 
 地址：`https://t.me/wanai8`
-
-二维码：
-
-![Telegram QR](./docs/assets/telegram-qr.png)
 
 ## 项目介绍页
 

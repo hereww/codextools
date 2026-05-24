@@ -14,14 +14,14 @@
       content="Standalone Go + React manager for Codex workflows, relay setup, script tooling, diagnostics, and repair operations."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="./assets/manager-desktop.png" />
+    <meta property="og:image" content="https://github.com/hereww/codextools" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CodexTools" />
     <meta
       name="twitter:description"
       content="Standalone Go + React manager for Codex workflows, relay setup, script tooling, diagnostics, and repair operations."
     />
-    <meta name="twitter:image" content="./assets/manager-desktop.png" />
+    <meta name="twitter:image" content="https://github.com/hereww/codextools" />
     <style>
       :root {
         --bg: #eef5fb;
@@ -148,12 +148,26 @@
         color: var(--primary);
       }
 
-      .hero-shot img,
-      .telegram img {
+      .hero-shot,
+      .telegram-code {
         display: block;
-        width: 100%;
         border-radius: 24px;
         border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .hero-shot {
+        min-height: 100%;
+        padding: 22px;
+      }
+
+      .hero-shot pre,
+      .telegram-code pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--muted);
+        font: 600 13px/1.7 ui-monospace, "SFMono-Regular", Menlo, monospace;
       }
 
       .grid {
@@ -281,7 +295,32 @@
           </div>
         </div>
         <div class="hero-shot">
-          <img src="./assets/manager-desktop.png" alt="CodexTools manager screenshot" />
+          <div data-lang="en" class="active">
+            <h3>Repository contents</h3>
+            <pre>main.go
+web/
+  src/
+  package.json
+docs/
+  index.html
+  assets/
+README.md
+README.zh-CN.md
+PUBLISHING.md</pre>
+          </div>
+          <div data-lang="zh">
+            <h3>仓库内容结构</h3>
+            <pre>main.go
+web/
+  src/
+  package.json
+docs/
+  index.html
+  assets/
+README.md
+README.zh-CN.md
+PUBLISHING.md</pre>
+          </div>
         </div>
       </section>
 
@@ -344,7 +383,10 @@
       </section>
 
       <section class="section telegram">
-        <img src="./assets/telegram-qr.png" alt="Telegram QR code" />
+        <div class="telegram-code">
+          <pre>Telegram
+https://t.me/wanai8</pre>
+        </div>
         <div>
           <div data-lang="en" class="active">
             <h3>Telegram community</h3>

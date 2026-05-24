@@ -49,19 +49,9 @@ go build -o codextools .
 6. Legacy conversation repair
    Provider sync tools help recover visibility for older local conversations.
 
-## Screenshots
-
-Desktop manager:
-
-![Desktop manager](./docs/assets/manager-desktop.png)
-
 ## Telegram community
 
 Telegram: `https://t.me/wanai8`
-
-QR code:
-
-![Telegram QR](./docs/assets/telegram-qr.png)
 
 ## Project introduction page
 
