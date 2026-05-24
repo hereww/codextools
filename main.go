@@ -433,24 +433,6 @@ func runLauncher(args []string) error {
 		appendDiagnosticLog("launcher.codex_start_failed", map[string]any{"error": err.Error(), "command": safeCommandForLog(command)})
 		return err
 	}
-	if settings.Enhancements {
-		if err := runtimeState.retryInjection(helperPort); err != nil {
-			failure := launchStatus{
-				Status:      "failed",
-				Message:     "Codex++ 注入失败：" + err.Error(),
-				StartedAtMS: uint64(time.Now().UnixMilli()),
-				DebugPort:   &debugPort,
-				HelperPort:  &helperPort,
-				CodexApp:    &appPath,
-			}
-			_ = atomicWriteJSON(latestStatusPath(), failure)
-			appendDiagnosticLog("launcher.inject_failed", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "error": err.Error()})
-			terminateLaunchedCodex(cmd, command, appPath)
-			_ = cmd.Wait()
-			return err
-		}
-		go runtimeState.bridgeWatchdog(helperPort)
-	}
 	ready := launchStatus{
 		Status:      "running",
 		Message:     "Codex++ launcher ready.",
@@ -458,6 +440,14 @@ func runLauncher(args []string) error {
 		DebugPort:   &debugPort,
 		HelperPort:  &helperPort,
 		CodexApp:    &appPath,
+	}
+	if settings.Enhancements {
+		if err := runtimeState.retryInjection(helperPort); err != nil {
+			ready.Status = "degraded"
+			ready.Message = "Codex 已启动，但 Codex++ 增强菜单暂时注入失败；中转代理会继续运行，并在后台重试注入：" + err.Error()
+			appendDiagnosticLog("launcher.inject_degraded", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "error": err.Error()})
+		}
+		go runtimeState.bridgeWatchdog(helperPort)
 	}
 	_ = atomicWriteJSON(latestStatusPath(), ready)
 	appendDiagnosticLog("launcher.ready", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
@@ -1237,9 +1227,9 @@ func (r *launcherRuntime) retryInjection(helperPort uint16) error {
 }
 
 func (r *launcherRuntime) inject(helperPort uint16) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	targets, err := listCDPTargets(ctx, r.debugPort)
+	targetCtx, targetCancel := context.WithTimeout(context.Background(), cdpConnectTimeout)
+	defer targetCancel()
+	targets, err := listCDPTargets(targetCtx, r.debugPort)
 	if err != nil {
 		return err
 	}
@@ -1250,7 +1240,9 @@ func (r *launcherRuntime) inject(helperPort uint16) error {
 	if target.WebSocketDebuggerURL == "" {
 		return errors.New("selected CDP target has no websocket URL")
 	}
-	return r.installBridge(ctx, target.WebSocketDebuggerURL, helperPort)
+	installCtx, installCancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer installCancel()
+	return r.installBridge(installCtx, target.WebSocketDebuggerURL, helperPort)
 }
 
 func (r *launcherRuntime) bridgeWatchdog(helperPort uint16) {
@@ -1347,10 +1339,16 @@ func pickCDPPageTarget(targets []cdpTarget) (cdpTarget, error) {
 		if target.WebSocketDebuggerURL == "" {
 			continue
 		}
+		if isCodexCDPPageTarget(target) {
+			return target, nil
+		}
 		if fallback == nil {
 			fallback = &targets[i]
 		}
-		if target.Type == "page" {
+	}
+	for i := range targets {
+		target := targets[i]
+		if target.WebSocketDebuggerURL != "" && target.Type == "page" {
 			return target, nil
 		}
 	}
@@ -1358,6 +1356,13 @@ func pickCDPPageTarget(targets []cdpTarget) (cdpTarget, error) {
 		return *fallback, nil
 	}
 	return cdpTarget{}, errors.New("未找到可注入的 Codex CDP 页面 target")
+}
+
+func isCodexCDPPageTarget(target cdpTarget) bool {
+	if target.Type != "page" || target.WebSocketDebuggerURL == "" {
+		return false
+	}
+	return strings.HasPrefix(target.URL, "app://-/") || strings.EqualFold(target.Title, "Codex")
 }
 
 func (r *launcherRuntime) installBridge(ctx context.Context, websocketURL string, helperPort uint16) error {

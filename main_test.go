@@ -61,3 +61,32 @@ func TestSelectCodexMirrorAssetPrefersMacArchitecture(t *testing.T) {
 		t.Fatalf("selected wrong asset: %q", asset.Name)
 	}
 }
+
+func TestPickCDPPageTargetPrefersCodexAppPage(t *testing.T) {
+	target, err := pickCDPPageTarget([]cdpTarget{
+		{ID: "worker", Type: "worker", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/worker"},
+		{ID: "blank-page", Type: "page", URL: "about:blank", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/blank"},
+		{ID: "codex-page", Type: "page", URL: "app://-/index.html", Title: "Codex", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/codex"},
+	})
+
+	if err != nil {
+		t.Fatalf("pickCDPPageTarget returned error: %v", err)
+	}
+	if target.ID != "codex-page" {
+		t.Fatalf("selected wrong target: %q", target.ID)
+	}
+}
+
+func TestPickCDPPageTargetFallsBackToFirstPage(t *testing.T) {
+	target, err := pickCDPPageTarget([]cdpTarget{
+		{ID: "worker", Type: "worker", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/worker"},
+		{ID: "page", Type: "page", URL: "https://example.com", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/page"},
+	})
+
+	if err != nil {
+		t.Fatalf("pickCDPPageTarget returned error: %v", err)
+	}
+	if target.ID != "page" {
+		t.Fatalf("selected wrong fallback target: %q", target.ID)
+	}
+}
