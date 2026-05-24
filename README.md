@@ -14,9 +14,25 @@ It keeps the task-oriented manager UI, the relay and provider tooling, script ma
 
 ## Repository layout
 
-- `main.go`: Go backend and local HTTP shell.
+- `main.go`: binary entry point, build-time role switch, embedded assets, and shared constants.
+- `manager.go`: local HTTP manager, static UI serving, command dispatch, Codex app discovery, and CCS provider import.
+- `launcher.go`: silent launcher flow, Codex process startup, restart handling, and launch status updates.
+- `helper.go`: helper HTTP server, local relay proxy, CORS responses, and image/text relay routing.
+- `bridge.go`: Chrome DevTools Protocol integration, renderer bridge injection, and bridge request handling.
+- `settings.go`: settings defaults, persistence, repository root detection, and embedded/web dist lookup.
+- `relay.go`: relay profile application, auth/config status, relay file editing, and relay profile tests.
+- `repair.go`: Codex config repair, plugin recovery, provider sync, SQLite/global-state maintenance, and TOML table repair helpers.
+- `scripts.go`: script market loading, script install/delete, and user script inventory.
+- `entrypoints.go`: desktop entry/app bundle/shortcut installation and Windows watcher support.
+- `diagnostics.go`: diagnostic log writing, log tailing, and support report generation.
+- `toml.go`: focused TOML string helpers used by relay and repair flows.
+- `util.go`: small shared HTTP, JSON, path, argument, and type-conversion helpers.
+- `types.go`: shared backend data structures.
+- `desktop_darwin.go`, `desktop_other.go`: platform-specific manager window hooks.
 - `web/`: React + Vite manager UI.
-- `docs/`: project introduction page and public assets.
+- `docs/`: GitHub Pages project introduction, download page, and public assets.
+
+The Go backend is still one `package main` so release scripts can keep using `-ldflags "-X main.binaryRole=..."`, but the implementation is split by responsibility to reduce merge conflicts and make ownership clearer.
 
 ## Run locally
 

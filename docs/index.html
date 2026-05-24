@@ -418,29 +418,37 @@
         <div class="hero-shot">
           <div data-lang="en" class="active">
             <h3>Repository contents</h3>
-            <pre>main.go
-web/
-  src/
-  package.json
-docs/
-  index.html
-  assets/
-README.md
-README.zh-CN.md
-PUBLISHING.md</pre>
+            <pre>main.go              entry point
+manager.go           HTTP manager + commands
+launcher.go          silent launcher
+helper.go            helper server + relay proxy
+bridge.go            CDP bridge injection
+settings.go          settings + dist lookup
+relay.go             relay configuration
+repair.go            repair + provider sync
+scripts.go           user scripts + market
+entrypoints.go       desktop entries + watcher
+diagnostics.go       logs + support reports
+types.go/util.go     shared structures + helpers
+web/                 React + Vite UI
+docs/                GitHub Pages assets</pre>
           </div>
           <div data-lang="zh">
             <h3>仓库内容结构</h3>
-            <pre>main.go
-web/
-  src/
-  package.json
-docs/
-  index.html
-  assets/
-README.md
-README.zh-CN.md
-PUBLISHING.md</pre>
+            <pre>main.go              程序入口
+manager.go           HTTP 管理器与命令分发
+launcher.go          静默启动器
+helper.go            helper 服务与中转代理
+bridge.go            CDP 桥接注入
+settings.go          设置与前端产物查找
+relay.go             中转配置
+repair.go            修复与 Provider 同步
+scripts.go           用户脚本与脚本市场
+entrypoints.go       桌面入口与 watcher
+diagnostics.go       日志与诊断报告
+types.go/util.go     共享结构与工具函数
+web/                 React + Vite 前端
+docs/                GitHub Pages 资源</pre>
           </div>
         </div>
       </section>
@@ -449,11 +457,11 @@ PUBLISHING.md</pre>
         <article class="card">
           <div data-lang="en" class="active">
             <h3>Standalone structure</h3>
-            <p>The web UI lives in `web/`, the backend lives in `main.go`, and the app can be built without the original monorepo.</p>
+            <p>The web UI lives in `web/`, while the Go backend is split by manager, launcher, relay, bridge, repair, scripts, diagnostics, and shared helpers. Release builds still use one `package main` for simple desktop packaging.</p>
           </div>
           <div data-lang="zh">
             <h3>独立结构</h3>
-            <p>前端在 `web/`，后端在 `main.go`，整个项目不再依赖原始单体仓库才能构建。</p>
+            <p>前端在 `web/`，Go 后端按管理器、启动器、中转、桥接、修复、脚本、诊断和共享工具拆分。发布构建仍保留同一个 `package main`，便于桌面包继续使用现有构建方式。</p>
           </div>
         </article>
         <article class="card">

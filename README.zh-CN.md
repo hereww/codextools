@@ -14,9 +14,25 @@ CodexTools 是从 Codex++ 重构工作中拆出来的独立 Go + React 管理器
 
 ## 目录结构
 
-- `main.go`：Go 后端入口。
+- `main.go`：二进制入口、构建时角色切换、内嵌资源和共享常量。
+- `manager.go`：本地 HTTP 管理器、静态前端服务、命令分发、Codex App 发现和 CCS 供应商导入。
+- `launcher.go`：静默启动器流程、Codex 进程启动、重启处理和启动状态写入。
+- `helper.go`：helper HTTP 服务、本地中转代理、CORS 响应和图片/文本中转路由。
+- `bridge.go`：Chrome DevTools Protocol 集成、渲染进程桥接注入和桥接请求处理。
+- `settings.go`：设置默认值、持久化、仓库根目录发现和前端构建产物查找。
+- `relay.go`：中转配置应用、登录/配置状态、配置文件编辑和中转连通性测试。
+- `repair.go`：Codex 配置修复、插件恢复、Provider 同步、SQLite/global-state 维护和 TOML 表修复辅助。
+- `scripts.go`：脚本市场加载、脚本安装/删除和用户脚本清单。
+- `entrypoints.go`：桌面入口、App Bundle、快捷方式安装和 Windows watcher 支持。
+- `diagnostics.go`：诊断日志写入、日志截取和支持报告生成。
+- `toml.go`：Relay 与修复流程共用的 TOML 字符串工具。
+- `util.go`：通用 HTTP、JSON、路径、参数和类型转换辅助函数。
+- `types.go`：后端共享数据结构。
+- `desktop_darwin.go`、`desktop_other.go`：平台相关的管理器窗口挂钩。
 - `web/`：React + Vite 前端。
-- `docs/`：项目介绍页和公开展示资源。
+- `docs/`：GitHub Pages 项目介绍、下载页和公开展示资源。
+
+Go 后端仍然保持在同一个 `package main` 中，这样发布脚本可以继续使用 `-ldflags "-X main.binaryRole=..."`；具体实现按职责拆分，减少多人开发时的冲突，也让模块归属更清楚。
 
 ## 本地运行
 
