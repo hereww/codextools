@@ -12,11 +12,12 @@ case "$ARCH" in
   *) ARCH_LABEL="$ARCH" ;;
 esac
 
-APP_NAME="CodexTools"
-LAUNCHER_NAME="CodexTools Launcher"
+APP_NAME="Codex++ 管理工具"
+LAUNCHER_NAME="Codex++"
 APP_DIR="$BUILD/$APP_NAME.app"
 LAUNCHER_APP_DIR="$BUILD/$LAUNCHER_NAME.app"
 ZIP_PATH="$DIST/CodexTools-${VERSION}-macos-${ARCH_LABEL}.zip"
+PACKAGE_DIR="$BUILD/CodexTools-${VERSION}-macos-${ARCH_LABEL}"
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD" "$DIST"
@@ -79,9 +80,19 @@ create_app "$LAUNCHER_APP_DIR" "$LAUNCHER_NAME" "codextools-launcher" "$BUILD/co
 
 cp "$BUILD/codextools-launcher" "$APP_DIR/Contents/MacOS/codextools-launcher"
 cp "$BUILD/codextools" "$LAUNCHER_APP_DIR/Contents/MacOS/codextools"
-cp "$ROOT/README.md" "$BUILD/README.md"
-cp "$ROOT/README.zh-CN.md" "$BUILD/README.zh-CN.md"
+mkdir -p "$PACKAGE_DIR"
+cp -R "$LAUNCHER_APP_DIR" "$PACKAGE_DIR/"
+cp -R "$APP_DIR" "$PACKAGE_DIR/"
+cp "$ROOT/README.md" "$PACKAGE_DIR/README.md"
+cp "$ROOT/README.zh-CN.md" "$PACKAGE_DIR/README.zh-CN.md"
+cat > "$PACKAGE_DIR/START-HERE.txt" <<TXT
+CodexTools macOS package
+
+1. Open "Codex++ 管理工具.app" to configure and manage Codex++.
+2. Open "Codex++.app" to launch Codex directly through the Codex++ launcher.
+3. If macOS blocks the app, right-click the app and choose Open.
+TXT
 
 rm -f "$ZIP_PATH"
-ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
 echo "$ZIP_PATH"

@@ -7,9 +7,10 @@ BUILD="$ROOT/dist/build/windows"
 VERSION="${VERSION:-1.1.6}"
 TARGET="${TARGET:-windows}"
 ZIP_PATH="$DIST/CodexTools-${VERSION}-windows-x64.zip"
+PACKAGE_DIR="$BUILD/CodexTools-${VERSION}-windows-x64"
 
 rm -rf "$BUILD"
-mkdir -p "$BUILD" "$DIST"
+mkdir -p "$BUILD" "$DIST" "$PACKAGE_DIR"
 
 pushd "$ROOT/web" >/dev/null
 npm install
@@ -18,22 +19,22 @@ npm run vite:build
 popd >/dev/null
 
 pushd "$ROOT" >/dev/null
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.binaryRole=manager" -o "$BUILD/codextools.exe" .
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.binaryRole=launcher" -o "$BUILD/codextools-launcher.exe" .
+GOOS=windows GOARCH=amd64 go build -ldflags "-X main.binaryRole=manager" -o "$PACKAGE_DIR/Codex++ 管理工具.exe" .
+GOOS=windows GOARCH=amd64 go build -ldflags "-X main.binaryRole=launcher" -o "$PACKAGE_DIR/Codex++.exe" .
 popd >/dev/null
 
-cp "$ROOT/assets/icons/codextools-1024.png" "$BUILD/codextools-icon.png"
-cp "$ROOT/README.md" "$BUILD/README.md"
-cp "$ROOT/README.zh-CN.md" "$BUILD/README.zh-CN.md"
+cp "$ROOT/assets/icons/codextools-1024.png" "$PACKAGE_DIR/codextools-icon.png"
+cp "$ROOT/README.md" "$PACKAGE_DIR/README.md"
+cp "$ROOT/README.zh-CN.md" "$PACKAGE_DIR/README.zh-CN.md"
 
-cat > "$BUILD/START-HERE.txt" <<TXT
-CodexTools for Windows
+cat > "$PACKAGE_DIR/START-HERE.txt" <<TXT
+CodexTools Windows package
 
-1. Double-click codextools.exe to open the manager.
-2. Set your Codex installation path in the app if it is not detected automatically.
-3. The package also includes codextools-launcher.exe for direct launch workflows used by the manager.
+1. Double-click "Codex++ 管理工具.exe" to configure and manage Codex++.
+2. Double-click "Codex++.exe" to launch Codex directly through the Codex++ launcher.
+3. Set your Codex installation path in the manager if it is not detected automatically.
 TXT
 
 rm -f "$ZIP_PATH"
-ditto -c -k --sequesterRsrc --keepParent "$BUILD" "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
 echo "$ZIP_PATH"

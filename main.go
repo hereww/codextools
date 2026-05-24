@@ -27,8 +27,8 @@ import (
 
 const (
 	appName                  = "CodexTools"
-	silentName               = "CodexTools Launcher"
-	managerName              = "CodexTools"
+	silentName               = "Codex++"
+	managerName              = "Codex++ 管理工具"
 	silentBinary             = "codextools-launcher"
 	managerBinary            = "codextools"
 	version                  = "1.1.6"
