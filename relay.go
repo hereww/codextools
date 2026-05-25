@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (s *server) relayStatus() commandResult {
@@ -44,8 +45,12 @@ func chatGPTAuthStatus(home string) authStatus {
 	if err != nil {
 		return authStatus{}
 	}
+	return chatGPTAuthStatusFromContents(string(data), path)
+}
+
+func chatGPTAuthStatusFromContents(contents, source string) authStatus {
 	var value map[string]any
-	if json.Unmarshal(data, &value) != nil {
+	if json.Unmarshal([]byte(contents), &value) != nil {
 		return authStatus{}
 	}
 	if !strings.EqualFold(stringFromAny(value["auth_mode"]), "chatgpt") {
@@ -55,7 +60,31 @@ func chatGPTAuthStatus(home string) authStatus {
 	if tokens == nil || (!hasToken(tokens, "access_token") && !hasToken(tokens, "id_token") && !hasToken(tokens, "refresh_token")) {
 		return authStatus{}
 	}
-	return authStatus{Authenticated: true, Source: path, AccountLabel: accountLabelFromTokens(tokens)}
+	return authStatus{Authenticated: true, Source: source, AccountLabel: accountLabelFromTokens(tokens)}
+}
+
+type officialAuthSnapshot struct {
+	Contents     string
+	AccountLabel string
+	UpdatedAt    string
+}
+
+func currentOfficialAuthSnapshot(home string) (officialAuthSnapshot, bool) {
+	path := filepath.Join(home, "auth.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return officialAuthSnapshot{}, false
+	}
+	contents := string(data)
+	status := chatGPTAuthStatusFromContents(contents, path)
+	if !status.Authenticated {
+		return officialAuthSnapshot{}, false
+	}
+	return officialAuthSnapshot{
+		Contents:     contents,
+		AccountLabel: status.AccountLabel,
+		UpdatedAt:    time.Now().Format(time.RFC3339),
+	}, true
 }
 
 func hasToken(tokens map[string]any, key string) bool {
@@ -145,14 +174,124 @@ func (s *server) saveRelayFile(args map[string]any) commandResult {
 	return ok("配置文件已保存。", relayFilesPayload(codexHomeDir()))
 }
 
+func (s *server) bindOfficialAuth(args map[string]any) commandResult {
+	profileID := relayProfileIDArg(args)
+	settings := loadSettings()
+	if profileID == "" {
+		profileID = activeRelayProfile(settings).ID
+	}
+	snapshot, snapshotOK := currentOfficialAuthSnapshot(codexHomeDir())
+	if !snapshotOK {
+		return failed("未检测到当前 ChatGPT 官方登录，无法绑定到供应商。", settingsPayloadValue(settings))
+	}
+	updated, found := updateRelayProfileOfficialAuth(settings, profileID, snapshot)
+	if !found {
+		return failed("绑定官方账号失败：未找到供应商。", settingsPayloadValue(settings))
+	}
+	if err := saveSettings(updated); err != nil {
+		return failed("绑定官方账号失败："+err.Error(), settingsPayloadValue(settings))
+	}
+	label := snapshot.AccountLabel
+	if label == "" {
+		label = "已检测"
+	}
+	return ok("已将当前官方账号绑定到供应商："+label, settingsPayloadValue(loadSettings()))
+}
+
+func (s *server) unbindOfficialAuth(args map[string]any) commandResult {
+	profileID := relayProfileIDArg(args)
+	settings := loadSettings()
+	if profileID == "" {
+		profileID = activeRelayProfile(settings).ID
+	}
+	updated, found := clearRelayProfileOfficialAuth(settings, profileID)
+	if !found {
+		return failed("解除官方账号绑定失败：未找到供应商。", settingsPayloadValue(settings))
+	}
+	if err := saveSettings(updated); err != nil {
+		return failed("解除官方账号绑定失败："+err.Error(), settingsPayloadValue(settings))
+	}
+	return ok("已解除此供应商的官方账号绑定。", settingsPayloadValue(loadSettings()))
+}
+
+func (s *server) clearCurrentOfficialAuth() commandResult {
+	home := codexHomeDir()
+	path := filepath.Join(home, "auth.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		payload := relayStatusFromHome(home)
+		payload["backupPath"] = nil
+		return ok("当前没有可清除的官方登录文件。", payload)
+	}
+	if !chatGPTAuthStatusFromContents(string(data), path).Authenticated {
+		payload := relayStatusFromHome(home)
+		payload["backupPath"] = nil
+		return failed("当前 auth.json 不是 ChatGPT 官方登录，为避免误删已停止清除。", payload)
+	}
+	backupDir := filepath.Join(stateDir(), "official-auth-backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return failed("备份官方登录失败："+err.Error(), relayStatusFromHome(home))
+	}
+	backupPath := filepath.Join(backupDir, "auth-"+time.Now().Format("20060102-150405")+".json")
+	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
+		return failed("备份官方登录失败："+err.Error(), relayStatusFromHome(home))
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return failed("清除当前官方登录失败："+err.Error(), relayStatusFromHome(home))
+	}
+	payload := relayStatusFromHome(home)
+	payload["backupPath"] = backupPath
+	return ok("已备份并清除当前官方登录；现在可以在 Codex/ChatGPT 登录另一个账号。", payload)
+}
+
+func relayProfileIDArg(args map[string]any) string {
+	request := mapArg(args, "request")
+	if id := stringArg(request, "profileId"); id != "" {
+		return id
+	}
+	return stringArg(args, "profileId")
+}
+
+func updateRelayProfileOfficialAuth(settings backendSettings, profileID string, snapshot officialAuthSnapshot) (backendSettings, bool) {
+	found := false
+	for index := range settings.RelayProfiles {
+		if settings.RelayProfiles[index].ID != profileID {
+			continue
+		}
+		settings.RelayProfiles[index].OfficialAuthContents = snapshot.Contents
+		settings.RelayProfiles[index].OfficialAccountLabel = snapshot.AccountLabel
+		settings.RelayProfiles[index].OfficialAuthUpdatedAt = snapshot.UpdatedAt
+		found = true
+		break
+	}
+	return normalizeSettings(settings), found
+}
+
+func clearRelayProfileOfficialAuth(settings backendSettings, profileID string) (backendSettings, bool) {
+	found := false
+	for index := range settings.RelayProfiles {
+		if settings.RelayProfiles[index].ID != profileID {
+			continue
+		}
+		settings.RelayProfiles[index].OfficialAuthContents = ""
+		settings.RelayProfiles[index].OfficialAccountLabel = ""
+		settings.RelayProfiles[index].OfficialAuthUpdatedAt = ""
+		found = true
+		break
+	}
+	return normalizeSettings(settings), found
+}
+
 func (s *server) applyRelayInjection(pure bool) commandResult {
 	home := codexHomeDir()
 	settings := loadSettings()
 	relay := activeRelayProfile(settings)
 	useSavedFiles := strings.TrimSpace(relay.ConfigContents) != "" &&
 		(strings.TrimSpace(relay.AuthContents) != "" || relay.RelayMode == "mixedApi")
-	if !pure && relay.RelayMode == "mixedApi" && !chatGPTAuthStatus(home).Authenticated {
-		return failed("未检测到 ChatGPT 登录状态，已停止写入中转配置。", relayStatusFromHome(home))
+	if !pure && relay.RelayMode == "mixedApi" {
+		if err := writeOfficialAuthForRelay(home, relay); err != nil {
+			return failed("切换官方混合 API 失败："+err.Error(), relayStatusFromHome(home))
+		}
 	}
 	if !pure && useSavedFiles {
 		if err := os.MkdirAll(home, 0o755); err != nil {
@@ -300,15 +439,34 @@ func upsertModelProviderConfig(contents, baseURL, bearerToken string, relay rela
 
 func (s *server) clearRelayInjection() commandResult {
 	home := codexHomeDir()
+	settings := loadSettings()
+	relay := activeRelayProfile(settings)
+	if err := writeOfficialAuthForRelay(home, relay); err != nil {
+		return failed("切换官方登录模式失败："+err.Error(), relayStatusFromHome(home))
+	}
 	_ = os.MkdirAll(home, 0o755)
-	clearPureAPIAuth(filepath.Join(home, "auth.json"))
 	configPath := filepath.Join(home, "config.toml")
 	data, _ := os.ReadFile(configPath)
 	updated := removeRootKey(removeRootKey(removeTable(removeTable(string(data), "model_providers."+relayProvider), "model_providers."+legacyRelayProvider), "OPENAI_API_KEY"), "model_provider")
 	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {
 		return failed("清除中转配置失败："+err.Error(), relayStatusFromHome(home))
 	}
-	return ok("已清除 CodexPlusPlus 中转 API 模式，并切换到官方 ChatGPT 登录模式。", relayStatusFromHome(home))
+	return ok("已切换到此供应商绑定的官方 ChatGPT 登录模式。", relayStatusFromHome(home))
+}
+
+func writeOfficialAuthForRelay(home string, relay relayProfile) error {
+	contents := strings.TrimSpace(relay.OfficialAuthContents)
+	if contents == "" {
+		return errors.New("此供应商还没有绑定官方账号，请先登录目标 ChatGPT 账号并绑定当前登录")
+	}
+	status := chatGPTAuthStatusFromContents(relay.OfficialAuthContents, "settings:"+relay.ID)
+	if !status.Authenticated {
+		return errors.New("此供应商绑定的官方账号快照无效，请重新绑定")
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(home, "auth.json"), []byte(relay.OfficialAuthContents), 0o600)
 }
 
 func clearPureAPIAuth(path string) {

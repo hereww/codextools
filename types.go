@@ -38,6 +38,9 @@ type relayProfile struct {
 	Protocol                      string `json:"protocol"`
 	RelayMode                     string `json:"relayMode"`
 	OfficialMixAPIKey             bool   `json:"officialMixApiKey"`
+	OfficialAuthContents          string `json:"officialAuthContents"`
+	OfficialAccountLabel          string `json:"officialAccountLabel"`
+	OfficialAuthUpdatedAt         string `json:"officialAuthUpdatedAt"`
 	TestModel                     string `json:"testModel"`
 	ConfigContents                string `json:"configContents"`
 	AuthContents                  string `json:"authContents"`

@@ -162,6 +162,9 @@ type RelayProfile = {
   protocol: RelayProtocol;
   relayMode: RelayMode;
   officialMixApiKey: boolean;
+  officialAuthContents: string;
+  officialAccountLabel: string;
+  officialAuthUpdatedAt: string;
   testModel: string;
   configContents: string;
   authContents: string;
@@ -365,6 +368,9 @@ const defaultSettings: BackendSettings = {
       protocol: "responses",
       relayMode: "official",
       officialMixApiKey: false,
+      officialAuthContents: "",
+      officialAccountLabel: "",
+      officialAuthUpdatedAt: "",
       testModel: "",
       configContents: "",
       authContents: "",
@@ -653,6 +659,7 @@ export function App() {
       setSettingsForm(normalizeSettings(result.settings));
       if (!silent || !isSuccessStatus(result.status)) showNotice("设置保存", result.message, result.status);
     }
+    return result;
   };
 
   const importCcsProviders = async () => {
@@ -777,6 +784,38 @@ export function App() {
     return result;
   };
 
+  const bindOfficialAuth = async (profileId: string) => {
+    const result = await run(() => call<SettingsResult>("bind_official_auth", { request: { profileId } }));
+    if (result) {
+      setSettings(result);
+      setSettingsForm(normalizeSettings(result.settings));
+      showNotice("官方账号绑定", result.message, result.status);
+      await refreshRelay(true);
+    }
+    return result;
+  };
+
+  const unbindOfficialAuth = async (profileId: string) => {
+    const result = await run(() => call<SettingsResult>("unbind_official_auth", { request: { profileId } }));
+    if (result) {
+      setSettings(result);
+      setSettingsForm(normalizeSettings(result.settings));
+      showNotice("官方账号绑定", result.message, result.status);
+      await refreshRelay(true);
+    }
+    return result;
+  };
+
+  const clearCurrentOfficialAuth = async () => {
+    const result = await run(() => call<RelayResult>("clear_current_official_auth"));
+    if (result) {
+      setRelay(result);
+      showNotice("清除当前官方登录", result.message, result.status);
+      await refreshRelayFiles(true);
+    }
+    return result;
+  };
+
   const testRelayProfile = async (profile: RelayProfile) => {
     const result = await run(() => call<RelayProfileTestResult>("test_relay_profile", { profile }));
     if (result) showNotice("供应商测试", result.message, result.status);
@@ -851,14 +890,20 @@ export function App() {
       return null;
     }
 
+    const currentSnapshot =
+      current.relayMode === "pureApi"
+        ? { configContents: files.configContents, authContents: files.authContents }
+        : current.relayMode === "mixedApi"
+          ? { configContents: files.configContents, authContents: "" }
+          : { configContents: "", authContents: "" };
+
     return syncLegacyRelayFields({
       ...next,
       relayProfiles: next.relayProfiles.map((profile) =>
         profile.id === current.id
           ? {
               ...profile,
-              configContents: files.configContents,
-              authContents: files.authContents,
+              ...currentSnapshot,
             }
           : profile,
       ),
@@ -999,6 +1044,9 @@ export function App() {
       applyPureApiInjection,
       clearRelayInjection,
       saveRelayFile,
+      bindOfficialAuth,
+      unbindOfficialAuth,
+      clearCurrentOfficialAuth,
       showNotice,
       testRelayProfile,
       switchRelayProfile,
@@ -1161,7 +1209,7 @@ type Actions = {
   uninstallEntrypoints: () => Promise<void>;
   repairShortcuts: () => Promise<void>;
   saveSettings: () => Promise<void>;
-  saveSettingsValue: (settings: BackendSettings, silent?: boolean) => Promise<void>;
+  saveSettingsValue: (settings: BackendSettings, silent?: boolean) => Promise<SettingsResult | null>;
   resetSettings: () => Promise<void>;
   chooseCodexAppPath: (mode: "folder" | "file") => Promise<void>;
   clearCodexAppPath: () => Promise<void>;
@@ -1184,6 +1232,9 @@ type Actions = {
   applyPureApiInjection: () => Promise<boolean>;
   clearRelayInjection: () => Promise<boolean>;
   saveRelayFile: (kind: "config" | "auth", contents: string, silent?: boolean) => Promise<RelayFilesResult | null>;
+  bindOfficialAuth: (profileId: string) => Promise<SettingsResult | null>;
+  unbindOfficialAuth: (profileId: string) => Promise<SettingsResult | null>;
+  clearCurrentOfficialAuth: () => Promise<RelayResult | null>;
   showNotice: (title: string, message: string, status?: Status) => void;
   testRelayProfile: (profile: RelayProfile) => Promise<void>;
   switchRelayProfile: (settings: BackendSettings) => Promise<void>;
@@ -1426,8 +1477,8 @@ function InstallGuideScreen({
     relayMode: selectedMode,
     officialMixApiKey: selectedMode === "mixedApi",
   });
-  const needsRelayProfile = selectedMode === "mixedApi" || selectedMode === "pureApi";
-  const selectedProfileReady = !needsRelayProfile || relayProfileHasApiConfig(modeProfile);
+  const selectedProfileProblem = relayProfileSwitchValidation(modeProfile);
+  const selectedProfileReady = !selectedProfileProblem;
 
   const openInstall = async () => {
     const url = status?.codexInstallUrl || (status?.platform === "darwin" ? "https://openai.com/codex/" : "https://github.com/Wangnov/codex-app-mirror/releases/latest");
@@ -1698,13 +1749,19 @@ function GuideModeStep({
   onApply: () => void;
 }) {
   const selectedProfile = form.relayProfiles.find((profile) => profile.id === selectedProfileId) || activeRelayProfile(form);
+  const selectedModeProfile = withGeneratedRelayFiles({
+    ...selectedProfile,
+    relayMode: selectedMode,
+    officialMixApiKey: selectedMode === "mixedApi",
+  });
+  const selectedProfileProblem = relayProfileSwitchValidation(selectedModeProfile);
   return (
     <div className="guide-pane">
       <div className="guide-pane-head">
         <KeyRound className="h-5 w-5" />
         <div>
           <h3>选择连接模式</h3>
-          <p>官方模式直接完成；混合 API 模式会提醒先官方登录；中转模式需要选择可用中转通道。</p>
+          <p>官方/混合模式使用供应商绑定的官方账号；中转模式需要选择可用中转通道。</p>
         </div>
       </div>
       <div className="mode-switch-panel onboarding-mode-panel">
@@ -1723,7 +1780,7 @@ function GuideModeStep({
       {selectedMode === "mixedApi" ? (
         <div className="platform-note">
           <ShieldCheck className="h-4 w-4" />
-          <span>混合 API 模式需要先完成官方登录。当前登录状态：{relay?.authenticated ? relay.accountLabel || "已检测到官方登录" : "未检测到官方登录"}。</span>
+          <span>混合 API 模式需要此供应商已绑定官方账号，并填写 Base URL / Key。</span>
         </div>
       ) : null}
       {selectedMode !== "official" ? (
@@ -1743,13 +1800,13 @@ function GuideModeStep({
           </Field>
           <div className={`platform-note ${selectedProfileReady ? "" : "limited"}`}>
             <Info className="h-4 w-4" />
-            <span>{selectedProfileReady ? relayProfileReadinessText({ ...selectedProfile, relayMode: selectedMode }, relay) : "所选通道缺少 Base URL 或 API Key，请先在连接服务里编辑供应商，或导入 CCSwitch 配置。"}</span>
+            <span>{selectedProfileReady ? relayProfileReadinessText(selectedModeProfile, relay) : selectedProfileProblem || "所选通道未就绪，请先在连接服务里编辑供应商。"}</span>
           </div>
         </>
       ) : (
         <div className="platform-note">
           <ShieldCheck className="h-4 w-4" />
-          <span>官方模式会清理中转写入，完成后使用 Codex/ChatGPT 官方登录。</span>
+          <span>{selectedProfileReady ? relayProfileReadinessText(selectedModeProfile, relay) : selectedProfileProblem || "此供应商还没有绑定官方账号。"}</span>
         </div>
       )}
       <Toolbar>
@@ -1809,9 +1866,9 @@ function guideModeTitle(mode: RelayMode) {
 }
 
 function guideModeDescription(mode: RelayMode) {
-  if (mode === "mixedApi") return "先官方登录，再混入所选 API 通道。";
+  if (mode === "mixedApi") return "使用供应商绑定的官方号，再混入所选 API 通道。";
   if (mode === "pureApi") return "直接写入中转通道配置。";
-  return "只使用官方登录，配置完成后即可启动。";
+  return "只使用供应商绑定的官方号。";
 }
 
 function installDownloadText(download?: CodexLatestDownload) {
@@ -1830,10 +1887,6 @@ function formatBytes(bytes: number) {
     unit += 1;
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function relayProfileHasApiConfig(profile: RelayProfile) {
-  return Boolean(profile.baseUrl.trim() && profile.apiKey.trim());
 }
 
 function NavGroup({
@@ -1962,8 +2015,8 @@ function RelayScreen({
         <CardContent>
           <div className="relay-grid">
             <Metric label="当前模式" value={apiModeLabel(relay)} />
-            <Metric label="ChatGPT 登录" value={relay?.authenticated ? "已检测" : "未检测"} />
-            <Metric label="登录账号" value={relay?.accountLabel ?? "-"} />
+            <Metric label="官方账号绑定" value={officialBindingStatusLabel(active)} />
+            <Metric label="绑定账号" value={officialBindingLabel(active)} />
             <Metric label="当前供应商" value={active.name || "-"} />
             <Metric label="接入模式" value={relayModeLabel(active.relayMode)} />
             <Metric label="上游协议" value={relayProtocolLabel(active.protocol)} />
@@ -2676,6 +2729,10 @@ function SortableRelayProfileCard({
           <Image className="h-3.5 w-3.5" />
           {relayImageModeLabel(profile)}
         </span>
+        <span className={`image-chip official-chip ${profile.officialAuthContents.trim() ? "enabled" : ""}`}>
+          <KeyRound className="h-3.5 w-3.5" />
+          {officialBindingStatusLabel(profile)}
+        </span>
       </span>
       <span className="relay-card-actions">
         <Button
@@ -2800,12 +2857,57 @@ function RelayProfileDetail({
   const [draft, setDraft] = useState<RelayProfile>(profile);
   const isActive = !isNew && profile.id === form.activeRelayId;
   useEffect(() => {
-    setDraft(
-      isActive && relayFiles
-        ? { ...profile, configContents: relayFiles.configContents, authContents: relayFiles.authContents }
-        : profile,
-    );
-  }, [profile.id, isActive, isNew, relayFiles?.configContents, relayFiles?.authContents]);
+    if (!isActive || !relayFiles) {
+      setDraft(profile);
+      return;
+    }
+    const fileBackfill =
+      profile.relayMode === "pureApi"
+        ? { configContents: relayFiles.configContents, authContents: relayFiles.authContents }
+        : profile.relayMode === "mixedApi"
+          ? { configContents: relayFiles.configContents, authContents: "" }
+          : { configContents: "", authContents: "" };
+    setDraft({ ...profile, ...fileBackfill });
+  }, [
+    profile.id,
+    profile.name,
+    profile.relayMode,
+    profile.baseUrl,
+    profile.apiKey,
+    profile.officialAuthContents,
+    profile.officialAccountLabel,
+    profile.officialAuthUpdatedAt,
+    isActive,
+    isNew,
+    relayFiles?.configContents,
+    relayFiles?.authContents,
+  ]);
+  const saveDraftSettings = async () => {
+    const next = isNew ? addRelayProfile(form, draft) : updateRelayProfile(form, profile.id, draft);
+    const result = await actions.saveSettingsValue(next, true);
+    return result ? normalizeSettings(result.settings) : null;
+  };
+  const syncDraftFromSettings = (settingsValue: BackendSettings | null) => {
+    const updated = settingsValue?.relayProfiles.find((item) => item.id === profile.id);
+    if (updated) setDraft(updated);
+  };
+  const bindCurrentOfficialAuth = async () => {
+    if (isNew) {
+      actions.showNotice("官方账号绑定", "请先保存新供应商，再绑定官方账号。", "failed");
+      return;
+    }
+    await saveDraftSettings();
+    const result = await actions.bindOfficialAuth(profile.id);
+    if (result) syncDraftFromSettings(normalizeSettings(result.settings));
+  };
+  const unbindCurrentOfficialAuth = async () => {
+    if (isNew) {
+      actions.showNotice("官方账号绑定", "新供应商还没有官方账号绑定。", "failed");
+      return;
+    }
+    const result = await actions.unbindOfficialAuth(profile.id);
+    if (result) syncDraftFromSettings(normalizeSettings(result.settings));
+  };
   const saveDraft = async () => {
     const next = isNew ? addRelayProfile(form, draft) : updateRelayProfile(form, profile.id, draft);
     onFormChange(next);
@@ -2855,6 +2957,13 @@ function RelayProfileDetail({
         </Button>
       </Toolbar>
       <RelayProfileEditor profile={draft} form={form} isNew={isNew} onProfileChange={setDraft} onSwitch={switchDraft} />
+      <OfficialAuthBindingPanel
+        profile={draft}
+        isNew={isNew}
+        onBind={bindCurrentOfficialAuth}
+        onClearCurrent={() => void actions.clearCurrentOfficialAuth()}
+        onUnbind={unbindCurrentOfficialAuth}
+      />
       <RelayFileEditors profile={draft} isActive={isActive} onProfileChange={setDraft} />
     </div>
   );
@@ -3049,6 +3158,55 @@ function RelayProfileEditor({
   );
 }
 
+function OfficialAuthBindingPanel({
+  profile,
+  isNew,
+  onBind,
+  onClearCurrent,
+  onUnbind,
+}: {
+  profile: RelayProfile;
+  isNew: boolean;
+  onBind: () => void;
+  onClearCurrent: () => void;
+  onUnbind: () => void;
+}) {
+  const bound = profile.officialAuthContents.trim().length > 0;
+  return (
+    <div className="relay-profile-editor official-auth-panel">
+      <div className="relay-editor-head">
+        <div>
+          <strong>官方账号绑定</strong>
+          <span>{bound ? `已绑定：${officialBindingLabel(profile)}` : "未绑定；官方/混合模式会阻止切换。"}</span>
+        </div>
+        <UiBadge variant={bound ? "secondary" : "outline"}>{bound ? "已绑定" : "未绑定"}</UiBadge>
+      </div>
+      <div className="official-auth-meta">
+        <Metric label="绑定账号" value={officialBindingLabel(profile)} />
+        <Metric label="更新时间" value={formatOfficialAuthTime(profile.officialAuthUpdatedAt)} />
+      </div>
+      <div className="hint-line relay-protocol-hint">
+        <ShieldCheck className="h-4 w-4" />
+        <span>更换账号时：先清除当前官方登录，在 Codex/ChatGPT 登录新号，再回到这里绑定当前登录。</span>
+      </div>
+      <Toolbar>
+        <Button disabled={isNew} onClick={onBind} variant="secondary">
+          <KeyRound className="h-4 w-4" />
+          绑定当前登录
+        </Button>
+        <Button onClick={onClearCurrent} variant="outline">
+          <PowerOff className="h-4 w-4" />
+          清除当前官方登录
+        </Button>
+        <Button disabled={isNew || !bound} onClick={onUnbind} variant="ghost">
+          <Trash2 className="h-4 w-4" />
+          解除绑定
+        </Button>
+      </Toolbar>
+    </div>
+  );
+}
+
 function RelayFileEditors({
   profile,
   isActive,
@@ -3078,11 +3236,18 @@ function RelayFileEditors({
         <div className="relay-file-head">
           <div>
             <strong>auth.json</strong>
-            <span>{isActive ? "当前使用中：打开时从 ~/.codex/auth.json 回填，保存时写回真实文件" : "切换到此供应商时完整写入 ~/.codex/auth.json"}</span>
+            <span>
+              {profile.relayMode === "pureApi"
+                ? isActive
+                  ? "当前中转模式：打开时从 ~/.codex/auth.json 回填，保存时写回真实文件"
+                  : "中转模式切换到此供应商时写入 ~/.codex/auth.json"
+                : "官方账号快照已隐藏；此编辑框仅用于中转 API 模式。"}
+            </span>
           </div>
         </div>
         <Textarea
           className="relay-file-textarea"
+          disabled={profile.relayMode !== "pureApi"}
           value={profile.authContents}
           onChange={(event) => onProfileChange({ ...profile, authContents: event.currentTarget.value })}
           spellCheck={false}
@@ -3383,6 +3548,9 @@ function normalizeSettings(settings: BackendSettings): BackendSettings {
             protocol: "responses" as RelayProtocol,
             relayMode: "official" as RelayMode,
             officialMixApiKey: false,
+            officialAuthContents: "",
+            officialAccountLabel: "",
+            officialAuthUpdatedAt: "",
             testModel: "",
             configContents: "",
             authContents: "",
@@ -3424,6 +3592,9 @@ function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
     protocol: profile.protocol === "chatCompletions" ? "chatCompletions" : "responses",
     relayMode,
     officialMixApiKey: relayMode === "mixedApi",
+    officialAuthContents: profile.officialAuthContents || "",
+    officialAccountLabel: profile.officialAccountLabel || "",
+    officialAuthUpdatedAt: profile.officialAuthUpdatedAt || "",
     testModel: profile.testModel || "",
     configContents: profile.configContents || "",
     authContents: profile.authContents || "",
@@ -3470,12 +3641,27 @@ function relayImageModeLabel(profile: RelayProfile): string {
   return "图片走当前中转";
 }
 
+function officialBindingStatusLabel(profile: RelayProfile): string {
+  return profile.officialAuthContents.trim() ? "官方号已绑定" : "官方号未绑定";
+}
+
+function officialBindingLabel(profile: RelayProfile): string {
+  return profile.officialAccountLabel || (profile.officialAuthContents.trim() ? "已绑定" : "-");
+}
+
+function formatOfficialAuthTime(value: string): string {
+  if (!value) return "-";
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return value;
+  return time.toLocaleString("zh-CN");
+}
+
 function relayProfileModeHelp(profile: RelayProfile): string {
   if (profile.relayMode === "official") {
-    return "此供应商会切回官方登录模式，使用 ChatGPT 官方账号，不写入 API Key。";
+    return "此供应商会切回官方登录模式，使用它绑定的 ChatGPT 官方账号，不写入 API Key。";
   }
   if (profile.relayMode === "mixedApi") {
-    return "此供应商会保留官方登录模式，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
+    return "此供应商会使用它绑定的官方账号，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
   }
   if (profile.relayMode === "pureApi") {
     return "此供应商会按中转 API 模式完整写入 config.toml / auth.json，并启用完整页面增强。";
@@ -3485,16 +3671,17 @@ function relayProfileModeHelp(profile: RelayProfile): string {
 
 function relayProfileReadinessText(profile: RelayProfile, relay: RelayResult | null): string {
   if (profile.relayMode === "official") {
-    return relay?.authenticated
-      ? `官方账号已登录：${relay.accountLabel || relay.authSource || "已检测"}。`
-      : "当前未登录官方账号；切到官方登录模式后仍需要先在 Codex/ChatGPT 登录。";
+    return profile.officialAuthContents.trim()
+      ? `此供应商已绑定官方账号：${officialBindingLabel(profile)}。`
+      : "此供应商还没有绑定官方账号；请先登录目标 ChatGPT 账号并绑定当前登录。";
   }
   if (profile.relayMode === "mixedApi") {
     const hasApiFields = profile.baseUrl.trim() && profile.apiKey.trim();
-    if (!relay?.authenticated && !hasApiFields) return "当前未登录官方账号，也未配置混入 API 的 Base URL / Key。";
-    if (!relay?.authenticated) return "当前未登录官方账号；官方混合 API 需要先登录官方账号。";
+    const hasOfficialBinding = profile.officialAuthContents.trim();
+    if (!hasOfficialBinding && !hasApiFields) return "此供应商未绑定官方账号，也未配置混入 API 的 Base URL / Key。";
+    if (!hasOfficialBinding) return "此供应商还没有绑定官方账号；官方混合 API 需要先绑定。";
     if (!hasApiFields) return "当前还没有填写混入 API 的 Base URL / Key。";
-    return `官方登录已就绪：${relay.accountLabel || "已登录"}，会混入当前 API Key。`;
+    return `官方账号已绑定：${officialBindingLabel(profile)}，会混入当前 API Key。`;
   }
   const hasFiles = profile.configContents.trim() && profile.authContents.trim();
   if (!hasFiles) return "当前中转还没有完整 config.toml / auth.json。";
@@ -3596,7 +3783,15 @@ function buildRelayAuthJson(profile: Pick<RelayProfile, "apiKey">): string {
 }
 
 function relayProfileSwitchValidation(profile: RelayProfile): string | null {
-  if (profile.relayMode === "official") return null;
+  if (profile.relayMode === "official") {
+    if (!profile.officialAuthContents.trim()) {
+      return `供应商「${profile.name || profile.id}」还没有绑定官方账号，已停止切换。`;
+    }
+    return null;
+  }
+  if (profile.relayMode === "mixedApi" && !profile.officialAuthContents.trim()) {
+    return `供应商「${profile.name || profile.id}」还没有绑定官方账号，已停止切换。`;
+  }
   if (!profile.baseUrl.trim()) {
     return `供应商「${profile.name || profile.id}」缺少 Base URL，已停止切换。`;
   }
@@ -3679,6 +3874,9 @@ function createRelayProfile(settings: BackendSettings): RelayProfile {
     protocol: "responses" as RelayProtocol,
     relayMode: "official" as RelayMode,
     officialMixApiKey: false,
+    officialAuthContents: "",
+    officialAccountLabel: "",
+    officialAuthUpdatedAt: "",
     testModel: "",
     configContents: "",
     authContents: "",

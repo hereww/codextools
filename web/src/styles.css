@@ -1155,6 +1155,11 @@ body {
   color: hsl(var(--foreground));
 }
 
+.official-chip.enabled {
+  border-color: hsl(214 92% 62%);
+  background: hsl(214 100% 94%);
+}
+
 .relay-card-actions {
   display: flex;
   gap: 6px;
@@ -1189,6 +1194,17 @@ body {
   border-radius: 22px;
   background: hsl(var(--background));
   padding: 14px;
+}
+
+.official-auth-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.official-auth-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .relay-editor-head,

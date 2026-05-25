@@ -122,7 +122,12 @@ func loadSettings() backendSettings {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return defaultSettings()
 	}
-	return normalizeSettings(settings)
+	settings = normalizeSettings(settings)
+	if migrated, changed := migrateOfficialAuthBinding(settings); changed {
+		settings = migrated
+		_ = atomicWriteJSON(settingsPath(), settings)
+	}
+	return settings
 }
 
 func normalizeSettings(settings backendSettings) backendSettings {
@@ -160,6 +165,13 @@ func normalizeSettings(settings backendSettings) backendSettings {
 				settings.RelayProfiles[index].OfficialMixAPIKey = false
 			}
 		}
+		if strings.TrimSpace(settings.RelayProfiles[index].OfficialAuthContents) == "" {
+			settings.RelayProfiles[index].OfficialAccountLabel = ""
+			settings.RelayProfiles[index].OfficialAuthUpdatedAt = ""
+		} else if settings.RelayProfiles[index].OfficialAccountLabel == "" {
+			status := chatGPTAuthStatusFromContents(settings.RelayProfiles[index].OfficialAuthContents, "settings")
+			settings.RelayProfiles[index].OfficialAccountLabel = status.AccountLabel
+		}
 	}
 	if settings.ActiveRelayID == "" {
 		settings.ActiveRelayID = settings.RelayProfiles[0].ID
@@ -171,6 +183,28 @@ func normalizeSettings(settings backendSettings) backendSettings {
 		settings.CLIWrapperAPIKeyEnv = defaultAPIKeyEnvironment
 	}
 	return settings
+}
+
+func migrateOfficialAuthBinding(settings backendSettings) (backendSettings, bool) {
+	for _, profile := range settings.RelayProfiles {
+		if strings.TrimSpace(profile.OfficialAuthContents) != "" {
+			return settings, false
+		}
+	}
+	snapshot, ok := currentOfficialAuthSnapshot(codexHomeDir())
+	if !ok {
+		return settings, false
+	}
+	activeID := activeRelayProfile(settings).ID
+	for index := range settings.RelayProfiles {
+		if settings.RelayProfiles[index].ID == activeID {
+			settings.RelayProfiles[index].OfficialAuthContents = snapshot.Contents
+			settings.RelayProfiles[index].OfficialAccountLabel = snapshot.AccountLabel
+			settings.RelayProfiles[index].OfficialAuthUpdatedAt = snapshot.UpdatedAt
+			return settings, true
+		}
+	}
+	return settings, false
 }
 
 func normalizeLanguage(language string) string {

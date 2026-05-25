@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -49,6 +50,169 @@ func TestNormalizeSettingsLanguage(t *testing.T) {
 	settings = normalizeSettings(backendSettings{Language: "unsupported"})
 	if settings.Language != defaultLanguage {
 		t.Fatalf("unsupported language should fall back to %q, got %q", defaultLanguage, settings.Language)
+	}
+}
+
+func TestChatGPTAuthStatusFromContentsReadsEmail(t *testing.T) {
+	status := chatGPTAuthStatusFromContents(fakeChatGPTAuthJSON(t, "alpha@example.com"), "test")
+
+	if !status.Authenticated {
+		t.Fatal("official auth should be authenticated")
+	}
+	if status.AccountLabel != "alpha@example.com" {
+		t.Fatalf("account label mismatch: %q", status.AccountLabel)
+	}
+}
+
+func TestLoadSettingsMigratesCurrentOfficialAuthToActiveProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{
+		{ID: "first", Name: "First", RelayMode: "official", Protocol: "responses"},
+		{ID: "second", Name: "Second", RelayMode: "official", Protocol: "responses"},
+	}
+	settings.ActiveRelayID = "second"
+	writeTestFile(t, filepath.Join(home, ".codex", "auth.json"), fakeChatGPTAuthJSON(t, "active@example.com"))
+	if err := atomicWriteJSON(settingsPath(), settings); err != nil {
+		t.Fatalf("failed to write settings: %v", err)
+	}
+
+	loaded := loadSettings()
+
+	if loaded.RelayProfiles[0].OfficialAuthContents != "" {
+		t.Fatal("inactive profile should not receive migrated official auth")
+	}
+	active := activeRelayProfile(loaded)
+	if active.ID != "second" {
+		t.Fatalf("active profile mismatch: %q", active.ID)
+	}
+	if active.OfficialAccountLabel != "active@example.com" {
+		t.Fatalf("official account label mismatch: %q", active.OfficialAccountLabel)
+	}
+	if active.OfficialAuthContents == "" {
+		t.Fatal("official auth contents should be migrated")
+	}
+}
+
+func TestOfficialModeRequiresBoundOfficialAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{ID: "official", Name: "Official", RelayMode: "official", Protocol: "responses"}}
+	settings.ActiveRelayID = "official"
+	if err := saveSettings(settings); err != nil {
+		t.Fatalf("failed to save settings: %v", err)
+	}
+
+	result := (&server{}).clearRelayInjection()
+
+	if result["status"] != "failed" {
+		t.Fatalf("official switch without bound auth should fail: %#v", result)
+	}
+}
+
+func TestOfficialModeWritesBoundOfficialAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	officialAuth := fakeChatGPTAuthJSON(t, "official@example.com")
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{
+		ID:                   "official",
+		Name:                 "Official",
+		RelayMode:            "official",
+		Protocol:             "responses",
+		OfficialAuthContents: officialAuth,
+		OfficialAccountLabel: "official@example.com",
+	}}
+	settings.ActiveRelayID = "official"
+	if err := saveSettings(settings); err != nil {
+		t.Fatalf("failed to save settings: %v", err)
+	}
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml"), `model_provider = "CodexPlusPlus"`+"\n\n[model_providers.CodexPlusPlus]\nbase_url = \"https://api.example.com\"\n")
+
+	result := (&server{}).clearRelayInjection()
+
+	if result["status"] != "ok" {
+		t.Fatalf("official switch should succeed: %#v", result)
+	}
+	status := chatGPTAuthStatus(filepath.Join(home, ".codex"))
+	if !status.Authenticated || status.AccountLabel != "official@example.com" {
+		t.Fatalf("bound official auth was not written: %#v", status)
+	}
+	config, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if strings.Contains(string(config), "CodexPlusPlus") {
+		t.Fatalf("official mode should clear relay provider config:\n%s", string(config))
+	}
+}
+
+func TestMixedModeWritesBoundOfficialAuthAndRelayConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	officialAuth := fakeChatGPTAuthJSON(t, "mixed@example.com")
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{
+		ID:                   "mixed",
+		Name:                 "Mixed",
+		BaseURL:              "https://api.example.com",
+		APIKey:               "relay-key",
+		RelayMode:            "mixedApi",
+		Protocol:             "responses",
+		OfficialAuthContents: officialAuth,
+		OfficialAccountLabel: "mixed@example.com",
+	}}
+	settings.ActiveRelayID = "mixed"
+	if err := saveSettings(settings); err != nil {
+		t.Fatalf("failed to save settings: %v", err)
+	}
+
+	result := (&server{}).applyRelayInjection(false)
+
+	if result["status"] != "ok" {
+		t.Fatalf("mixed switch should succeed: %#v", result)
+	}
+	status := chatGPTAuthStatus(filepath.Join(home, ".codex"))
+	if !status.Authenticated || status.AccountLabel != "mixed@example.com" {
+		t.Fatalf("bound mixed official auth was not written: %#v", status)
+	}
+	config, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if !strings.Contains(string(config), `experimental_bearer_token = "relay-key"`) {
+		t.Fatalf("mixed relay config missing bearer token:\n%s", string(config))
+	}
+}
+
+func TestPureAPIModeKeepsOfficialBindingInactive(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	officialAuth := fakeChatGPTAuthJSON(t, "stored@example.com")
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{
+		ID:                   "pure",
+		Name:                 "Pure",
+		BaseURL:              "https://api.example.com",
+		APIKey:               "pure-key",
+		RelayMode:            "pureApi",
+		Protocol:             "responses",
+		OfficialAuthContents: officialAuth,
+		OfficialAccountLabel: "stored@example.com",
+	}}
+	settings.ActiveRelayID = "pure"
+	if err := saveSettings(settings); err != nil {
+		t.Fatalf("failed to save settings: %v", err)
+	}
+
+	result := (&server{}).applyRelayInjection(true)
+
+	if result["status"] != "ok" {
+		t.Fatalf("pure API switch should succeed: %#v", result)
+	}
+	auth, _ := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
+	if !strings.Contains(string(auth), `"OPENAI_API_KEY": "pure-key"`) {
+		t.Fatalf("pure API auth should use API key, got:\n%s", string(auth))
+	}
+	loaded := loadSettings()
+	if activeRelayProfile(loaded).OfficialAccountLabel != "stored@example.com" {
+		t.Fatal("pure API mode should not remove stored official binding")
 	}
 }
 
@@ -107,6 +271,26 @@ func writeTestFile(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
+}
+
+func fakeChatGPTAuthJSON(t *testing.T, email string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"email": email})
+	if err != nil {
+		t.Fatalf("failed to marshal token payload: %v", err)
+	}
+	token := "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+	data, err := json.MarshalIndent(map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens": map[string]string{
+			"id_token":      token,
+			"refresh_token": "refresh-token",
+		},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal auth json: %v", err)
+	}
+	return string(data) + "\n"
 }
 
 func TestSelectCodexMirrorAssetPrefersWindowsInstaller(t *testing.T) {

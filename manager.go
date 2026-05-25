@@ -206,6 +206,12 @@ func (s *server) dispatch(ctx context.Context, command string, args map[string]a
 		return s.readRelayFiles()
 	case "save_relay_file":
 		return s.saveRelayFile(args)
+	case "bind_official_auth":
+		return s.bindOfficialAuth(args)
+	case "unbind_official_auth":
+		return s.unbindOfficialAuth(args)
+	case "clear_current_official_auth":
+		return s.clearCurrentOfficialAuth()
 	case "test_relay_profile":
 		return s.testRelayProfile(ctx, args)
 	case "apply_relay_injection":
