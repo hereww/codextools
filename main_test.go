@@ -39,6 +39,19 @@ func TestBuildWatcherInstallPlanMatchesOriginalWindowsShape(t *testing.T) {
 	}
 }
 
+func TestNormalizeSettingsLanguage(t *testing.T) {
+	settings := normalizeSettings(backendSettings{Language: "ja"})
+
+	if settings.Language != "ja-JP" {
+		t.Fatalf("language should normalize to ja-JP, got %q", settings.Language)
+	}
+
+	settings = normalizeSettings(backendSettings{Language: "unsupported"})
+	if settings.Language != defaultLanguage {
+		t.Fatalf("unsupported language should fall back to %q, got %q", defaultLanguage, settings.Language)
+	}
+}
+
 func TestRepairCodexGoalsConfigEnablesGoalsFeature(t *testing.T) {
 	contents := strings.Join([]string{
 		`model_provider = "CodexPlusPlus"`,
@@ -171,6 +184,30 @@ func TestDecideRelayRouteKeepsToolDeclarationOnTextRoute(t *testing.T) {
 	}
 	if hasImageGenerationTool(t, decision.body) {
 		t.Fatal("stripped request body still contains image_generation tool")
+	}
+}
+
+func TestRelayProxyBaseURLAddsV1ForBareResponsesHost(t *testing.T) {
+	baseURL := relayProxyBaseURL("https://api.example.com/", "responses")
+
+	if baseURL != "https://api.example.com/v1" {
+		t.Fatalf("responses relay should append /v1 for bare hosts, got %q", baseURL)
+	}
+}
+
+func TestRelayProxyBaseURLKeepsExistingResponsesPath(t *testing.T) {
+	baseURL := relayProxyBaseURL("https://api.example.com/openai/", "responses")
+
+	if baseURL != "https://api.example.com/openai" {
+		t.Fatalf("responses relay should preserve existing paths, got %q", baseURL)
+	}
+}
+
+func TestRelayTestPayloadNormalizesResponsesBaseURL(t *testing.T) {
+	endpoint, _ := relayTestPayload(relayProfile{BaseURL: "https://api.example.com", Protocol: "responses"}, "gpt-test")
+
+	if endpoint != "https://api.example.com/v1/responses" {
+		t.Fatalf("relay test should use normalized responses endpoint, got %q", endpoint)
 	}
 }
 

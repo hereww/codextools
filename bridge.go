@@ -105,6 +105,7 @@ func bridgeSettingsValue(settings backendSettings) map[string]any {
 		"providerSyncEnabled": settings.ProviderSync,
 		"enhancementsEnabled": settings.Enhancements,
 		"launchMode":          settings.LaunchMode,
+		"language":            settings.Language,
 	}
 }
 
@@ -118,6 +119,9 @@ func (r *launcherRuntime) setBridgeSettings(payload map[string]any) map[string]a
 	}
 	if value := strings.TrimSpace(stringFromAny(payload["launchMode"])); value == "patch" || value == "relay" {
 		settings.LaunchMode = value
+	}
+	if _, ok := payload["language"]; ok {
+		settings.Language = normalizeLanguage(stringFromAny(payload["language"]))
 	}
 	if err := saveSettings(settings); err != nil {
 		return map[string]any{"status": "failed", "message": err.Error()}

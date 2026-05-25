@@ -11,6 +11,7 @@ import (
 type backendSettings struct {
 	CodexAppPath        string         `json:"codexAppPath"`
 	CodexExtraArgs      []string       `json:"codexExtraArgs"`
+	Language            string         `json:"language"`
 	ProviderSync        bool           `json:"providerSyncEnabled"`
 	Enhancements        bool           `json:"enhancementsEnabled"`
 	LaunchMode          string         `json:"launchMode"`

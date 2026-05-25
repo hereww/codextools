@@ -117,14 +117,14 @@ func (r *launcherRuntime) handleHelperHTTP(w http.ResponseWriter, req *http.Requ
 
 func (r *launcherRuntime) forwardRelayProxy(w http.ResponseWriter, req *http.Request, body []byte) {
 	profile := activeRelayProfile(r.settings)
-	baseURL := strings.TrimRight(strings.TrimSpace(profile.BaseURL), "/")
+	baseURL := relayProxyBaseURL(profile.BaseURL, profile.Protocol)
 	apiKey := strings.TrimSpace(profile.APIKey)
 	decision := relayRouteDecision{body: body, route: "text", reason: "default_text"}
 	if profile.Protocol == "responses" && profile.needsLocalRelayProxy() {
 		decision = decideRelayRoute(body, profile)
 		body = decision.body
 		if decision.useImageAPI && usesSeparateImageGenerationAPI(profile) {
-			baseURL = strings.TrimRight(strings.TrimSpace(profile.ImageGenerationBaseURL), "/")
+			baseURL = relayProxyBaseURL(profile.ImageGenerationBaseURL, profile.Protocol)
 			apiKey = strings.TrimSpace(profile.ImageGenerationAPIKey)
 			decision.keySource = "image"
 		} else {
@@ -176,6 +176,14 @@ func (r *launcherRuntime) forwardRelayProxy(w http.ResponseWriter, req *http.Req
 		"key_source":          decision.keySource,
 		"stripped_image_tool": decision.strippedImageTool,
 	})
+}
+
+func relayProxyBaseURL(baseURL, protocol string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if protocol == "responses" {
+		return normalizeResponsesBaseURL(trimmed)
+	}
+	return trimmed
 }
 
 func relayTargetURL(baseURL, path string) string {

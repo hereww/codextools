@@ -371,7 +371,7 @@ func (s *server) testRelayProfile(ctx context.Context, args map[string]any) comm
 }
 
 func relayTestPayload(profile relayProfile, model string) (string, map[string]any) {
-	baseURL := strings.TrimRight(strings.TrimSpace(profile.BaseURL), "/")
+	baseURL := relayProxyBaseURL(profile.BaseURL, profile.Protocol)
 	if profile.Protocol == "chatCompletions" {
 		return baseURL + "/chat/completions", map[string]any{"model": model, "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 16}
 	}

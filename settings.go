@@ -94,6 +94,7 @@ func codexHomeDir() string {
 func defaultSettings() backendSettings {
 	return backendSettings{
 		CodexExtraArgs:      []string{},
+		Language:            defaultLanguage,
 		Enhancements:        true,
 		LaunchMode:          "patch",
 		RelayProfiles:       []relayProfile{defaultRelayProfile()},
@@ -128,6 +129,7 @@ func normalizeSettings(settings backendSettings) backendSettings {
 	if settings.CodexExtraArgs == nil {
 		settings.CodexExtraArgs = []string{}
 	}
+	settings.Language = normalizeLanguage(settings.Language)
 	if settings.LaunchMode != "patch" && settings.LaunchMode != "relay" {
 		settings.LaunchMode = "patch"
 	}
@@ -169,6 +171,21 @@ func normalizeSettings(settings backendSettings) backendSettings {
 		settings.CLIWrapperAPIKeyEnv = defaultAPIKeyEnvironment
 	}
 	return settings
+}
+
+func normalizeLanguage(language string) string {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "", "zh", "zh-cn", "zh_cn", "cn", "chinese":
+		return "zh-CN"
+	case "en", "en-us", "en_us", "english":
+		return "en-US"
+	case "ko", "ko-kr", "ko_kr", "kr", "korean":
+		return "ko-KR"
+	case "ja", "ja-jp", "ja_jp", "jp", "japanese":
+		return "ja-JP"
+	default:
+		return defaultLanguage
+	}
 }
 
 func saveSettings(settings backendSettings) error {

@@ -29,6 +29,7 @@ const (
 	codexOfficialInstallURL  = "https://openai.com/codex/"
 	defaultRelayTestModel    = "gpt-5-mini"
 	defaultAPIKeyEnvironment = "CUSTOM_OPENAI_API_KEY"
+	defaultLanguage          = "zh-CN"
 	defaultGUIPath           = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 	cdpConnectTimeout        = 5 * time.Second
 	cdpCommandTimeout        = 5 * time.Second
