@@ -867,6 +867,30 @@ body {
   line-height: 1.45;
 }
 
+.detection-hints {
+  display: grid;
+  gap: 6px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  background: hsl(var(--muted) / 0.42);
+  padding: 12px 14px;
+}
+
+.detection-hints span {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detection-hints code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .guide-import-row {
   margin-bottom: 0;
 }

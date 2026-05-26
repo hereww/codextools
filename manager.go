@@ -282,31 +282,42 @@ func (s *server) loadInstallGuideStatus(ctx context.Context) commandResult {
 	settings := loadSettings()
 	codexApp := resolveCodexApp(settings.CodexAppPath)
 	ccsDBPath := defaultCCSDBPath()
+	ccsDBPathCandidates := ccsDBPathCandidates()
 	ccsProviders, ccsErr := listCCSProviders(ccsDBPath)
 	download := latestCodexDownload(ctx, runtime.GOOS, runtime.GOARCH)
+	message := "新手引导状态已读取。"
+	var warnings []string
+	if ccsErr != nil {
+		warnings = append(warnings, "CCSwitch 数据库读取失败："+ccsErr.Error())
+	}
+	if runtime.GOOS == "windows" && stringFromAny(download["status"]) == "failed" {
+		warnings = append(warnings, "Windows 安装包信息暂时获取失败，可稍后刷新")
+	}
+	if len(warnings) > 0 {
+		message = "系统和本地安装状态已读取；" + strings.Join(warnings, "；") + "。"
+	}
 	payload := map[string]any{
 		"platform":                    runtime.GOOS,
 		"arch":                        runtime.GOARCH,
-		"codexApp":                    pathState(codexApp),
+		"codexApp":                    codexPathState(codexApp),
 		"codexVersion":                codexAppVersion(codexApp),
+		"codexDetection":              codexDetectionPayload(settings.CodexAppPath, codexApp),
 		"codexInstallUrl":             codexInstallURL(download),
 		"codexInstallSource":          codexInstallSource(download),
 		"codexMirrorProjectUrl":       codexAppMirrorProjectURL,
 		"codexMirrorLatestReleaseUrl": codexMirrorLatestReleaseURL(download),
 		"codexLatestDownload":         download,
 		"ccs": map[string]any{
-			"installed":     fileExists(ccsDBPath),
-			"dbPath":        ccsDBPath,
-			"providerCount": len(ccsProviders),
-			"readError":     optionalErrorString(ccsErr),
+			"installed":        fileExists(ccsDBPath),
+			"dbPath":           ccsDBPath,
+			"dbPathCandidates": ccsDBPathCandidates,
+			"providerCount":    len(ccsProviders),
+			"readError":        optionalErrorString(ccsErr),
 		},
 		"settingsPath": settingsPath(),
 		"activeMode":   activeRelayProfile(settings).RelayMode,
 	}
-	if ccsErr != nil {
-		return failed("新手引导状态已读取，但 CCSwitch 数据库读取失败："+ccsErr.Error(), payload)
-	}
-	return ok("新手引导状态已读取。", payload)
+	return ok(message, payload)
 }
 
 func codexInstallURL(download map[string]any) string {
@@ -452,6 +463,14 @@ func pathState(path string) map[string]any {
 	return map[string]any{"status": "found", "path": path}
 }
 
+func codexPathState(path string) map[string]any {
+	state := pathState(path)
+	if path != "" && runtime.GOOS == "windows" {
+		state["executable"] = buildCodexExecutable(path)
+	}
+	return state
+}
+
 func shortcutState(path string) map[string]any {
 	if path == "" {
 		return map[string]any{"status": "missing", "path": nil}
@@ -478,7 +497,13 @@ func resolveCodexApp(saved string) string {
 		}
 	}
 	if runtime.GOOS == "windows" {
-		roots := []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), `C:\Program Files\WindowsApps`}
+		if installed := resolveWindowsCodexFromInstalledApps(); installed != "" {
+			return installed
+		}
+		if local := resolveWindowsCodexFromCommonPaths(); local != "" {
+			return local
+		}
+		roots := []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("LOCALAPPDATA"), `C:\Program Files\WindowsApps`}
 		var matches []string
 		for _, root := range roots {
 			if root == "" {
@@ -499,6 +524,63 @@ func resolveCodexApp(saved string) string {
 		sort.Strings(matches)
 		if len(matches) > 0 {
 			return matches[len(matches)-1]
+		}
+	}
+	return ""
+}
+
+func resolveWindowsCodexFromInstalledApps() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	commands := [][]string{
+		{"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Sort-Object Version | Select-Object -Last 1 -ExpandProperty InstallLocation`},
+		{"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'OpenAI.Codex' -or $_.PackageFullName -like 'OpenAI.Codex_*' } | Sort-Object Version | Select-Object -Last 1 -ExpandProperty InstallLocation`},
+	}
+	for _, command := range commands {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		out, err := exec.CommandContext(ctx, command[0], command[1:]...).Output()
+		cancel()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if normalized := normalizeCodexAppPath(line); normalized != "" {
+				return normalized
+			}
+		}
+	}
+	return ""
+}
+
+func resolveWindowsCodexFromCommonPaths() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	var candidates []string
+	addCandidate := func(path string) {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			candidates = append(candidates, path)
+		}
+	}
+	for _, key := range []string{"CODEX_APP_PATH", "CODEX_PATH", "CODEX_DESKTOP_PATH"} {
+		addCandidate(os.Getenv(key))
+	}
+	for _, root := range []string{os.Getenv("LOCALAPPDATA"), os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432")} {
+		if root == "" {
+			continue
+		}
+		addCandidate(filepath.Join(root, "Programs", "Codex"))
+		addCandidate(filepath.Join(root, "Codex"))
+		addCandidate(filepath.Join(root, "OpenAI", "Codex"))
+		addCandidate(filepath.Join(root, "OpenAI Codex"))
+		addCandidate(filepath.Join(root, "Microsoft", "WindowsApps", "Codex.exe"))
+		addCandidate(filepath.Join(root, "Microsoft", "WindowsApps", "codex.exe"))
+	}
+	for _, candidate := range candidates {
+		if normalized := normalizeCodexAppPath(candidate); normalized != "" {
+			return normalized
 		}
 	}
 	return ""
@@ -529,6 +611,48 @@ func normalizeCodexAppPath(path string) string {
 		return path
 	}
 	return ""
+}
+
+func codexDetectionPayload(saved, resolved string) map[string]any {
+	payload := map[string]any{
+		"savedPath":    nullableString(saved),
+		"resolvedPath": nullableString(resolved),
+		"status":       "missing",
+		"message":      "未检测到 Codex 应用。",
+		"candidates":   []string{},
+	}
+	if resolved != "" {
+		payload["status"] = "found"
+		payload["message"] = "已检测到 Codex 应用。"
+		payload["executable"] = buildCodexExecutable(resolved)
+		return payload
+	}
+	if runtime.GOOS == "windows" {
+		payload["message"] = "Windows 自动探测没有找到 Codex。若 Codex 已安装，请手动选择 Codex.exe 或安装目录。"
+		payload["candidates"] = windowsCodexDetectionHints()
+	}
+	return payload
+}
+
+func windowsCodexDetectionHints() []string {
+	if runtime.GOOS != "windows" {
+		return []string{}
+	}
+	var hints []string
+	if local := os.Getenv("LOCALAPPDATA"); local != "" {
+		hints = append(hints,
+			filepath.Join(local, "Programs", "Codex"),
+			filepath.Join(local, "Microsoft", "WindowsApps", "Codex.exe"),
+		)
+	}
+	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
+		hints = append(hints,
+			filepath.Join(programFiles, "WindowsApps", "OpenAI.Codex_*"),
+			filepath.Join(programFiles, "OpenAI", "Codex"),
+		)
+	}
+	hints = append(hints, "Get-AppxPackage OpenAI.Codex")
+	return hints
 }
 
 func codexAppVersion(path string) *string {
@@ -636,11 +760,12 @@ func companionBinaryPath(name string) string {
 
 func (s *server) loadCCSProviders() commandResult {
 	dbPath := defaultCCSDBPath()
+	candidates := ccsDBPathCandidates()
 	providers, err := listCCSProviders(dbPath)
 	if err != nil {
-		return failed("读取 CCS 供应商失败："+err.Error(), map[string]any{"dbPath": dbPath, "providers": []ccsProviderImport{}})
+		return failed("读取 CCS 供应商失败："+err.Error(), map[string]any{"dbPath": dbPath, "dbPathCandidates": candidates, "providers": []ccsProviderImport{}})
 	}
-	return ok(fmt.Sprintf("已读取 CCS Codex 供应商：%d 个。", len(providers)), map[string]any{"dbPath": dbPath, "providers": providers})
+	return ok(fmt.Sprintf("已读取 CCS Codex 供应商：%d 个。", len(providers)), map[string]any{"dbPath": dbPath, "dbPathCandidates": candidates, "providers": providers})
 }
 
 func (s *server) importCCSProviders() commandResult {
@@ -675,8 +800,57 @@ func (s *server) importCCSProviders() commandResult {
 }
 
 func defaultCCSDBPath() string {
+	candidates := ccsDBPathCandidates()
+	for _, candidate := range candidates {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return filepath.Join(".cc-switch", "cc-switch.db")
+}
+
+func ccsDBPathCandidates() []string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cc-switch", "cc-switch.db")
+	candidates := []string{}
+	addPath := func(path string) {
+		if strings.TrimSpace(path) == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if strings.EqualFold(existing, path) {
+				return
+			}
+		}
+		candidates = append(candidates, path)
+	}
+	addDir := func(parts ...string) {
+		dir := filepath.Join(parts...)
+		for _, name := range []string{"cc-switch.db", "database.db", "ccswitch.db", "cc-switch.sqlite", "ccswitch.sqlite"} {
+			addPath(filepath.Join(dir, name))
+		}
+	}
+	if home != "" {
+		addDir(home, ".cc-switch")
+		addDir(home, ".config", "cc-switch")
+		addDir(home, "AppData", "Roaming", "cc-switch")
+		addDir(home, "AppData", "Roaming", "CCSwitch")
+		addDir(home, "AppData", "Local", "cc-switch")
+		addDir(home, "AppData", "Local", "CCSwitch")
+		addDir(home, "AppData", "Local", "com.cc-switch.app")
+	}
+	for _, root := range []string{os.Getenv("APPDATA"), os.Getenv("LOCALAPPDATA")} {
+		if root == "" {
+			continue
+		}
+		addDir(root, "cc-switch")
+		addDir(root, "CCSwitch")
+		addDir(root, "com.cc-switch.app")
+		addDir(root, "ccswitch")
+	}
+	return candidates
 }
 
 func listCCSProviders(path string) ([]ccsProviderImport, error) {

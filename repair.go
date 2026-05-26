@@ -3,17 +3,19 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func (s *server) syncProvidersNow() commandResult {
@@ -718,44 +720,83 @@ func sqliteScalarInt(path, query string, args ...string) (int, error) {
 }
 
 func sqliteExecRows(path, query string, args ...string) (int, error) {
-	script := "BEGIN;\n" + sqliteStatement(query, args...) + ";\nSELECT changes();\nCOMMIT;\n"
-	cmd := exec.Command("sqlite3", path)
-	cmd.Stdin = strings.NewReader(script)
-	result, err := cmd.CombinedOutput()
+	db, err := openSQLite(path)
 	if err != nil {
-		return 0, fmt.Errorf("%v: %s", err, strings.TrimSpace(string(result)))
+		return 0, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(result)), "\n")
-	if len(lines) == 0 {
-		return 0, nil
+	defer db.Close()
+	result, err := db.Exec(query, sqliteArgs(args)...)
+	if err != nil {
+		return 0, err
 	}
-	rows, _ := strconv.Atoi(strings.TrimSpace(lines[len(lines)-1]))
-	return rows, nil
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
 }
 
 func sqliteQuery(path, query string, args ...string) (string, error) {
-	cmd := exec.Command("sqlite3", path, sqliteStatement(query, args...))
-	out, err := cmd.CombinedOutput()
+	db, err := openSQLite(path)
 	if err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		return "", err
 	}
-	return string(out), nil
+	defer db.Close()
+	rows, err := db.Query(query, sqliteArgs(args)...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for rows.Next() {
+		values := make([]sql.NullString, len(columns))
+		scan := make([]any, len(columns))
+		for index := range values {
+			scan[index] = &values[index]
+		}
+		if err := rows.Scan(scan...); err != nil {
+			return "", err
+		}
+		parts := make([]string, len(columns))
+		for index, value := range values {
+			if value.Valid {
+				parts[index] = value.String
+			}
+		}
+		lines = append(lines, strings.Join(parts, "|"))
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return strings.Join(lines, "\n") + "\n", nil
 }
 
-func sqliteStatement(query string, args ...string) string {
-	statement := query
-	for _, arg := range args {
-		statement = strings.Replace(statement, "?", quoteSQLiteValue(arg), 1)
+func openSQLite(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
 	}
-	return statement
+	if _, err := db.Exec("PRAGMA busy_timeout = 2000"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 func quoteSQLiteIdentifier(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
-func quoteSQLiteValue(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+func sqliteArgs(args []string) []any {
+	values := make([]any, len(args))
+	for index, arg := range args {
+		values[index] = arg
+	}
+	return values
 }
 
 func loadGlobalState(path string) map[string]any {

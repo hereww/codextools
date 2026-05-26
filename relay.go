@@ -16,27 +16,104 @@ import (
 )
 
 func (s *server) relayStatus() commandResult {
-	status := relayStatusFromHome(codexHomeDir())
+	status := relayStatusFromHome(codexHomeDir(), loadSettings())
 	message := "未检测到 ChatGPT 登录状态，请先在 Codex/ChatGPT 中正常登录。"
-	if boolFromAny(status["authenticated"]) {
-		message = "已检测到 ChatGPT 登录状态。"
+	if boolFromAny(status["currentAuthenticated"]) {
+		message = "已检测到当前 ChatGPT 登录状态。"
+	} else if boolFromAny(status["boundOfficialAuthenticated"]) {
+		message = "已检测到已绑定的官方账号。"
 	}
 	return ok(message, status)
 }
 
-func relayStatusFromHome(home string) map[string]any {
+func relayStatusFromHome(home string, settingsOpt ...backendSettings) map[string]any {
 	auth := chatGPTAuthStatus(home)
 	config := relayConfigStatus(home)
-	return map[string]any{
-		"authenticated":      auth.Authenticated,
-		"authSource":         auth.Source,
-		"accountLabel":       nullableString(auth.AccountLabel),
-		"configPath":         config.ConfigPath,
-		"configured":         config.Configured,
-		"requiresOpenaiAuth": config.RequiresOpenAIAuth,
-		"hasBearerToken":     config.HasBearerToken,
-		"backupPath":         nil,
+	settings := loadSettings()
+	if len(settingsOpt) > 0 {
+		settings = normalizeSettings(settingsOpt[0])
 	}
+	bound := boundOfficialAuthStatus(settings)
+	officialAuthenticated := auth.Authenticated || bound.Authenticated
+	officialAccountLabel := auth.AccountLabel
+	if officialAccountLabel == "" {
+		officialAccountLabel = bound.AccountLabel
+	}
+	officialAuthSource := auth.Source
+	if officialAuthSource == "" {
+		officialAuthSource = bound.Source
+	}
+	return map[string]any{
+		"authenticated":              auth.Authenticated,
+		"authSource":                 auth.Source,
+		"accountLabel":               nullableString(auth.AccountLabel),
+		"currentAuthenticated":       auth.Authenticated,
+		"currentAuthSource":          auth.Source,
+		"currentAccountLabel":        nullableString(auth.AccountLabel),
+		"officialAuthenticated":      officialAuthenticated,
+		"officialAuthSource":         officialAuthSource,
+		"officialAccountLabel":       nullableString(officialAccountLabel),
+		"boundOfficialAuthenticated": bound.Authenticated,
+		"boundOfficialAuthSource":    bound.Source,
+		"boundOfficialAccountLabel":  nullableString(bound.AccountLabel),
+		"boundOfficialProfileId":     nullableString(bound.ProfileID),
+		"boundOfficialProfileName":   nullableString(bound.ProfileName),
+		"configPath":                 config.ConfigPath,
+		"configured":                 config.Configured,
+		"requiresOpenaiAuth":         config.RequiresOpenAIAuth,
+		"hasBearerToken":             config.HasBearerToken,
+		"backupPath":                 nil,
+	}
+}
+
+type boundOfficialAuthSummary struct {
+	Authenticated bool
+	Source        string
+	AccountLabel  string
+	ProfileID     string
+	ProfileName   string
+}
+
+func boundOfficialAuthStatus(settings backendSettings) boundOfficialAuthSummary {
+	activeID := activeRelayProfile(settings).ID
+	for _, profile := range settings.RelayProfiles {
+		if profile.ID == activeID {
+			if summary, ok := relayProfileOfficialAuthStatus(profile); ok {
+				return summary
+			}
+			break
+		}
+	}
+	for _, profile := range settings.RelayProfiles {
+		if profile.ID == activeID {
+			continue
+		}
+		if summary, ok := relayProfileOfficialAuthStatus(profile); ok {
+			return summary
+		}
+	}
+	return boundOfficialAuthSummary{}
+}
+
+func relayProfileOfficialAuthStatus(profile relayProfile) (boundOfficialAuthSummary, bool) {
+	if strings.TrimSpace(profile.OfficialAuthContents) == "" {
+		return boundOfficialAuthSummary{}, false
+	}
+	status := chatGPTAuthStatusFromContents(profile.OfficialAuthContents, "settings:"+profile.ID)
+	if !status.Authenticated {
+		return boundOfficialAuthSummary{}, false
+	}
+	label := status.AccountLabel
+	if label == "" {
+		label = strings.TrimSpace(profile.OfficialAccountLabel)
+	}
+	return boundOfficialAuthSummary{
+		Authenticated: true,
+		Source:        status.Source,
+		AccountLabel:  label,
+		ProfileID:     profile.ID,
+		ProfileName:   profile.Name,
+	}, true
 }
 
 func chatGPTAuthStatus(home string) authStatus {

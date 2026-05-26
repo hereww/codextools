@@ -72,6 +72,7 @@ type CommandResult<T> = T & {
 type PathState = {
   status: string;
   path: string | null;
+  executable?: string;
 };
 
 type LaunchStatus = {
@@ -134,6 +135,14 @@ type InstallGuideStatusResult = CommandResult<{
   arch: string;
   codexApp: PathState;
   codexVersion: string | null;
+  codexDetection?: {
+    status: string;
+    message: string;
+    savedPath?: string | null;
+    resolvedPath?: string | null;
+    executable?: string;
+    candidates?: string[];
+  };
   codexInstallUrl: string;
   codexInstallSource: string;
   codexMirrorProjectUrl: string;
@@ -142,6 +151,7 @@ type InstallGuideStatusResult = CommandResult<{
   ccs: {
     installed: boolean;
     dbPath: string;
+    dbPathCandidates?: string[];
     providerCount: number;
     readError: string;
   };
@@ -225,6 +235,17 @@ type RelayResult = CommandResult<{
   authenticated: boolean;
   authSource: string;
   accountLabel: string | null;
+  currentAuthenticated?: boolean;
+  currentAuthSource?: string;
+  currentAccountLabel?: string | null;
+  officialAuthenticated?: boolean;
+  officialAuthSource?: string;
+  officialAccountLabel?: string | null;
+  boundOfficialAuthenticated?: boolean;
+  boundOfficialAuthSource?: string;
+  boundOfficialAccountLabel?: string | null;
+  boundOfficialProfileId?: string | null;
+  boundOfficialProfileName?: string | null;
   configPath: string;
   configured: boolean;
   requiresOpenaiAuth: boolean;
@@ -257,6 +278,7 @@ type CcsProviderImport = {
 
 type CcsProvidersResult = CommandResult<{
   dbPath: string;
+  dbPathCandidates?: string[];
   providers: CcsProviderImport[];
 }>;
 
@@ -730,6 +752,7 @@ export function App() {
       setSettingsForm(normalizeSettings(result.settings));
       await refreshCcsProviders(true);
       await refreshInstallGuideStatus(true);
+      await refreshRelay(true);
       showResultNotice("导入 CCSwitch 配置", result);
     }
   };
@@ -937,6 +960,7 @@ export function App() {
     const launchMode = currentSelected.relayMode === "pureApi" ? "patch" : "relay";
     const modeResult = await saveLaunchMode(launchMode, true, selectedSettings);
     await refreshInstallGuideStatus(true);
+    await refreshRelay(true);
     if (modeResult) showNotice("供应商切换", relayProfileModeSwitchedText(currentSelected), modeResult.status);
   };
 
@@ -1396,7 +1420,7 @@ function OverviewScreen({
           title="连接方式"
           value={apiMode}
           detail={relayProfileReadinessText(activeRelayProfile(settings?.settings ?? defaultSettings), relay)}
-          tone={relay?.configured || relay?.authenticated ? "good" : "warn"}
+          tone={relay?.configured || relayOfficialAuthenticated(relay) ? "good" : "warn"}
           icon={KeyRound}
           actionLabel="管理连接"
           onAction={() => void actions.goRelay()}
@@ -1680,6 +1704,7 @@ function InstallGuideScreen({
                 status={status}
                 installed={codexInstalled}
                 onInstall={openInstall}
+                onChoosePath={() => void actions.chooseCodexAppPath("file")}
                 onRefresh={() => void actions.refreshInstallGuideStatus()}
                 onNext={() => setStep("ccs")}
               />
@@ -1754,26 +1779,37 @@ function GuideCodexStep({
   status,
   installed,
   onInstall,
+  onChoosePath,
   onRefresh,
   onNext,
 }: {
   status: InstallGuideStatusResult | null;
   installed: boolean;
   onInstall: () => void;
+  onChoosePath: () => void;
   onRefresh: () => void;
   onNext: () => void;
 }) {
   const download = status?.codexLatestDownload;
   const installLabel = status?.platform === "darwin" ? "打开官方安装页" : "获取最新版安装包";
+  const isWindows = status?.platform === "windows";
+  const detectionMessage = status?.codexDetection?.message || (installed ? "已检测到 Codex 应用。" : "自动检测暂未找到 Codex。");
+  const detectionHints = status?.codexDetection?.candidates ?? [];
   return (
     <div className="guide-pane">
       <div className="guide-pane-head">
         {installed ? <CheckCircle2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}
         <div>
           <h3>{installed ? "Codex 已安装" : "安装 Codex"}</h3>
-          <p>{installed ? status?.codexApp.path ?? "已检测到 Codex 应用。" : "未检测到 Codex 时，使用右侧按钮打开对应系统的安装入口。"}</p>
+          <p>{installed ? status?.codexApp.path ?? detectionMessage : detectionMessage}</p>
         </div>
       </div>
+      {!installed && isWindows ? (
+        <div className="platform-note limited">
+          <Info className="h-4 w-4" />
+          <span>Windows 的 Microsoft Store / MSIX 安装目录可能限制读取权限。已安装但未识别时，直接选择 Codex.exe、app 目录或安装解包目录即可。</span>
+        </div>
+      ) : null}
       <div className="install-card">
         <div>
           <strong>{installed ? "当前 Codex" : status?.platform === "darwin" ? "macOS 官方安装" : "Windows 镜像安装包"}</strong>
@@ -1786,10 +1822,25 @@ function GuideCodexStep({
       </div>
       <div className="guide-facts">
         <Metric label="检测路径" value={status?.codexApp.path ?? "未找到"} />
+        {isWindows ? <Metric label="启动文件" value={status?.codexApp.executable || status?.codexDetection?.executable || "未找到"} /> : null}
         <Metric label="安装来源" value={status?.codexInstallSource === "official" ? "官方页面" : "镜像项目"} />
         <Metric label="最新版本" value={download?.releaseName || download?.tagName || "未获取"} />
       </div>
+      {!installed && isWindows && detectionHints.length > 0 ? (
+        <div className="detection-hints">
+          <span>已尝试位置</span>
+          {detectionHints.slice(0, 4).map((hint) => (
+            <code key={hint}>{hint}</code>
+          ))}
+        </div>
+      ) : null}
       <Toolbar>
+        {isWindows ? (
+          <Button onClick={onChoosePath} variant="secondary">
+            <FileCode2 className="h-4 w-4" />
+            手动选择 Codex.exe
+          </Button>
+        ) : null}
         <Button onClick={onRefresh} variant="secondary">
           <RefreshCw className="h-4 w-4" />
           我已安装，重新检测
@@ -1831,6 +1882,12 @@ function GuideCcsStep({
         <Metric label="可导入供应商" value={`${providerCount} 个`} />
         <Metric label="已导入" value={`${importedProviderCount} 个`} />
       </div>
+      {!installed || status?.ccs.readError ? (
+        <div className={`platform-note ${status?.ccs.readError ? "limited" : ""}`}>
+          <Info className="h-4 w-4" />
+          <span>{status?.ccs.readError || `已检查路径：${ccsCandidateSummary(status, ccsProviders)}`}</span>
+        </div>
+      ) : null}
       {installed && providerCount > 0 ? (
         <div className="relay-import-row guide-import-row">
           <div>
@@ -1969,7 +2026,7 @@ function GuideFinishStep({
         <Metric label="当前模式" value={relayModeLabel(active.relayMode)} />
         <Metric label="当前供应商" value={active.name || "-"} />
         <Metric label="配置文件" value={settings?.settings_path ?? "-"} />
-        <Metric label="登录状态" value={relay?.authenticated ? relay.accountLabel || "已登录" : "未检测到官方登录"} />
+        <Metric label="登录状态" value={relayOfficialLoginLabel(relay)} />
       </div>
       <Toolbar>
         <Button onClick={() => void actions.launch()} size="lg">
@@ -2142,6 +2199,8 @@ function RelayScreen({
             <Metric label="当前模式" value={apiModeLabel(relay)} />
             <Metric label="官方账号绑定" value={officialBindingStatusLabel(active)} />
             <Metric label="绑定账号" value={officialBindingLabel(active)} />
+            <Metric label="当前官方登录" value={relayCurrentOfficialLabel(relay)} />
+            <Metric label="已绑定官方号" value={relayBoundOfficialLabel(relay)} />
             <Metric label="当前供应商" value={active.name || "-"} />
             <Metric label="接入模式" value={relayModeLabel(active.relayMode)} />
             <Metric label="上游协议" value={relayProtocolLabel(active.protocol)} />
@@ -3609,6 +3668,12 @@ function ccsProviderSummary(result: CcsProvidersResult | null) {
   return `发现 ${result.providers.length} 个 CCS Codex 供应商：${result.dbPath}`;
 }
 
+function ccsCandidateSummary(status: InstallGuideStatusResult | null, result: CcsProvidersResult | null) {
+  const candidates = result?.dbPathCandidates ?? status?.ccs.dbPathCandidates ?? [];
+  if (!candidates.length) return "-";
+  return candidates.slice(0, 3).join(" ｜ ");
+}
+
 function providerInitial(name: string) {
   const trimmed = (name || "供应商").trim();
   return Array.from(trimmed)[0]?.toUpperCase() || "供";
@@ -3663,7 +3728,7 @@ function isSuccessStatus(status?: Status) {
 
 function apiModeLabel(relay: RelayResult | null) {
   if (!relay?.configured) return "官方登录";
-  return relay.authenticated ? "官方混合 API" : "中转 API";
+  return relayOfficialAuthenticated(relay) ? "官方混合 API" : "中转 API";
 }
 
 function healthItems(overview: OverviewResult | null, relay: RelayResult | null) {
@@ -3688,9 +3753,9 @@ function healthItems(overview: OverviewResult | null, relay: RelayResult | null)
     },
     {
       title: "ChatGPT 登录",
-      status: relay?.authenticated ? "ok" : "missing",
-      ok: !!relay?.authenticated,
-      detail: relay?.accountLabel || relay?.authSource || "官方混合 API 需要官方登录；中转 API 可不用官方登录。",
+      status: relayOfficialAuthenticated(relay) ? "ok" : "missing",
+      ok: relayOfficialAuthenticated(relay),
+      detail: relayOfficialAccountLabel(relay) || relay?.officialAuthSource || "官方混合 API 需要官方登录；中转 API 可不用官方登录。",
     },
   ];
 }
@@ -3811,6 +3876,30 @@ function officialBindingStatusLabel(profile: RelayProfile): string {
 
 function officialBindingLabel(profile: RelayProfile): string {
   return profile.officialAccountLabel || (profile.officialAuthContents.trim() ? "已绑定" : "-");
+}
+
+function relayOfficialAuthenticated(relay: RelayResult | null): boolean {
+  return !!(relay?.officialAuthenticated || relay?.authenticated || relay?.boundOfficialAuthenticated);
+}
+
+function relayOfficialAccountLabel(relay: RelayResult | null): string {
+  return relay?.officialAccountLabel || relay?.accountLabel || relay?.boundOfficialAccountLabel || "";
+}
+
+function relayCurrentOfficialLabel(relay: RelayResult | null): string {
+  if (relay?.currentAuthenticated || relay?.authenticated) return relay?.currentAccountLabel || relay?.accountLabel || "已登录";
+  return "未检测到";
+}
+
+function relayBoundOfficialLabel(relay: RelayResult | null): string {
+  if (!relay?.boundOfficialAuthenticated) return "未绑定";
+  const label = relay.boundOfficialAccountLabel || "已绑定";
+  return relay.boundOfficialProfileName ? `${label} · ${relay.boundOfficialProfileName}` : label;
+}
+
+function relayOfficialLoginLabel(relay: RelayResult | null): string {
+  if (relayOfficialAuthenticated(relay)) return relayOfficialAccountLabel(relay) || "已检测到官方账号";
+  return "未检测到官方登录";
 }
 
 function formatOfficialAuthTime(value: string): string {

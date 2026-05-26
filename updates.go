@@ -156,6 +156,9 @@ func codexToolsAssetScore(name, goos, goarch string) int {
 		if strings.Contains(lower, "windows") || strings.Contains(lower, "win") {
 			score += 40
 		}
+		if strings.Contains(lower, "setup") || strings.Contains(lower, "installer") {
+			score += 20
+		}
 	default:
 		if strings.Contains(lower, goos) {
 			score += 30
@@ -173,6 +176,9 @@ func codexToolsAssetScore(name, goos, goarch string) int {
 	}
 	if strings.HasSuffix(lower, ".zip") {
 		score += 12
+	}
+	if strings.HasSuffix(lower, ".exe") {
+		score += 18
 	}
 	if strings.Contains(lower, "sha256") || strings.Contains(lower, "manifest") || strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".json") {
 		score -= 100

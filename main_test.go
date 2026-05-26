@@ -95,6 +95,77 @@ func TestLoadSettingsMigratesCurrentOfficialAuthToActiveProfile(t *testing.T) {
 	}
 }
 
+func TestRelayStatusDetectsBoundOfficialAuthWithoutCurrentAuthFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{
+		ID:                   "official",
+		Name:                 "Official",
+		RelayMode:            "official",
+		Protocol:             "responses",
+		OfficialAuthContents: fakeChatGPTAuthJSON(t, "bound@example.com"),
+		OfficialAccountLabel: "bound@example.com",
+	}}
+	settings.ActiveRelayID = "official"
+
+	status := relayStatusFromHome(filepath.Join(home, ".codex"), settings)
+
+	if boolFromAny(status["currentAuthenticated"]) {
+		t.Fatal("current auth file should not be detected")
+	}
+	if !boolFromAny(status["boundOfficialAuthenticated"]) {
+		t.Fatalf("bound official auth should be detected: %#v", status)
+	}
+	if !boolFromAny(status["officialAuthenticated"]) {
+		t.Fatalf("overall official auth should be detected: %#v", status)
+	}
+	if got := stringFromAny(status["boundOfficialAccountLabel"]); got != "bound@example.com" {
+		t.Fatalf("bound account label mismatch: %q", got)
+	}
+	if got := stringFromAny(status["boundOfficialProfileId"]); got != "official" {
+		t.Fatalf("bound profile id mismatch: %q", got)
+	}
+}
+
+func TestDefaultCCSDBPathPrefersExistingHomeDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	expected := filepath.Join(home, ".cc-switch", "cc-switch.db")
+	writeTestFile(t, expected, "sqlite")
+
+	if got := defaultCCSDBPath(); got != expected {
+		t.Fatalf("ccswitch database path mismatch: %q", got)
+	}
+}
+
+func TestListCCSProvidersReadsSQLiteDatabase(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "cc-switch.db")
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE providers (id TEXT, name TEXT, settings_config TEXT, app_type TEXT, sort_index INTEGER, created_at TEXT)`); err != nil {
+		t.Fatalf("failed to create providers table: %v", err)
+	}
+	config := `{"base_url":"https://relay.example.com/v1","api_key":"relay-key"}`
+	if _, err := db.Exec(`INSERT INTO providers (id, name, settings_config, app_type, sort_index, created_at) VALUES (?, ?, ?, ?, ?, ?)`, "provider-1", "Relay One", config, "codex", 1, "2026-05-27"); err != nil {
+		t.Fatalf("failed to insert provider: %v", err)
+	}
+
+	providers, err := listCCSProviders(dbPath)
+	if err != nil {
+		t.Fatalf("failed to list providers: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("provider count mismatch: %d", len(providers))
+	}
+	if providers[0].SourceID != "provider-1" || providers[0].BaseURL != "https://relay.example.com/v1" || providers[0].APIKey != "relay-key" {
+		t.Fatalf("provider mismatch: %#v", providers[0])
+	}
+}
+
 func TestOfficialModeRequiresBoundOfficialAuth(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -322,6 +393,26 @@ func TestSelectCodexMirrorAssetPrefersMacArchitecture(t *testing.T) {
 	}
 }
 
+func TestNormalizeCodexAppPathAcceptsWindowsExecutableAndAppDir(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "OpenAI.Codex_1.2.3.0_x64__test", "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("failed to create app dir: %v", err)
+	}
+	exe := filepath.Join(appDir, "Codex.exe")
+	writeTestFile(t, exe, "binary")
+
+	if got := normalizeCodexAppPath(exe); got != appDir {
+		t.Fatalf("executable should normalize to app dir: %q", got)
+	}
+	if got := normalizeCodexAppPath(filepath.Dir(appDir)); got != appDir {
+		t.Fatalf("package root should normalize to nested app dir: %q", got)
+	}
+	if got := normalizeCodexAppPath(appDir); got != appDir {
+		t.Fatalf("app dir should stay app dir: %q", got)
+	}
+}
+
 func TestCompareVersionsHandlesSemverTags(t *testing.T) {
 	if compareVersions("v1.1.13", "1.1.12") <= 0 {
 		t.Fatal("v1.1.13 should be newer than 1.1.12")
@@ -346,6 +437,20 @@ func TestSelectCodexToolsAssetPrefersPlatformAndArchitecture(t *testing.T) {
 		t.Fatal("expected a matching CodexTools asset")
 	}
 	if asset.Name != "CodexTools-1.1.13-macos-arm64.zip" {
+		t.Fatalf("selected wrong asset: %q", asset.Name)
+	}
+}
+
+func TestSelectCodexToolsAssetPrefersWindowsSetup(t *testing.T) {
+	asset, ok := selectCodexToolsAsset([]codexAppMirrorAsset{
+		{Name: "CodexTools-1.1.13-windows-x64.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
+		{Name: "CodexTools-1.1.13-windows-x64-setup.exe", BrowserDownloadURL: "https://example.com/windows-setup.exe"},
+	}, "windows", "amd64")
+
+	if !ok {
+		t.Fatal("expected a matching CodexTools asset")
+	}
+	if asset.Name != "CodexTools-1.1.13-windows-x64-setup.exe" {
 		t.Fatalf("selected wrong asset: %q", asset.Name)
 	}
 }
