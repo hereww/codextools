@@ -204,6 +204,7 @@ func copyProxyHeaders(source http.Header, target http.Header) {
 		if lower == "authorization" || lower == "host" || lower == "connection" || lower == "content-length" {
 			continue
 		}
+		target.Del(name)
 		for _, value := range values {
 			target.Add(name, value)
 		}
