@@ -218,6 +218,14 @@ type codexAppMirrorAsset struct {
 	ContentType        string `json:"content_type"`
 }
 
+type codexToolsRelease struct {
+	TagName     string                `json:"tag_name"`
+	Name        string                `json:"name"`
+	HTMLURL     string                `json:"html_url"`
+	PublishedAt string                `json:"published_at"`
+	Assets      []codexAppMirrorAsset `json:"assets"`
+}
+
 type launchRequest struct {
 	appPath    string
 	debugPort  uint16

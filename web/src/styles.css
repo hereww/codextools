@@ -561,6 +561,86 @@ body {
   padding: 6px 10px;
 }
 
+.update-banner {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid hsl(var(--border) / 0.82);
+  border-radius: 24px;
+  background: hsl(var(--card) / 0.9);
+  padding: 14px 16px;
+}
+
+.update-banner.available {
+  border-color: hsl(151 70% 42% / 0.4);
+  background: linear-gradient(135deg, hsl(149 74% 94%), hsl(var(--card)));
+}
+
+.dark .update-banner.available {
+  background: linear-gradient(135deg, hsl(157 54% 14%), hsl(var(--card)));
+}
+
+.update-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: hsl(214 100% 95%);
+  color: hsl(217 89% 48%);
+}
+
+.update-banner.available .update-banner-icon {
+  background: hsl(148 78% 90%);
+  color: hsl(151 82% 30%);
+}
+
+.dark .update-banner-icon {
+  background: hsl(217 72% 20%);
+  color: hsl(214 95% 78%);
+}
+
+.dark .update-banner.available .update-banner-icon {
+  background: hsl(151 58% 20%);
+  color: hsl(151 74% 70%);
+}
+
+.update-banner-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.update-banner-copy span,
+.update-banner-copy small {
+  color: hsl(var(--muted-foreground));
+}
+
+.update-banner-copy span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.update-banner-copy strong {
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.update-banner-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.update-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .home-columns {
   display: grid;
   grid-template-columns: minmax(300px, 0.82fr) minmax(0, 1.18fr);
@@ -1873,6 +1953,7 @@ body {
   }
 
   .home-hero,
+  .update-banner,
   .home-columns,
   .onboarding-hero,
   .onboarding-layout,
@@ -1910,6 +1991,15 @@ body {
 
   .home-command {
     max-width: none;
+  }
+
+  .update-banner {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .update-banner-actions {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .home-hero-side {
@@ -2000,10 +2090,19 @@ body {
 
   .topbar-actions,
   .hero-actions,
+  .update-banner-actions,
   .home-command,
   .install-card {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .update-banner {
+    grid-template-columns: 1fr;
+  }
+
+  .update-banner-actions {
+    grid-column: auto;
   }
 
   .screen {

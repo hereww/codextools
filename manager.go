@@ -89,10 +89,17 @@ func (s *server) handleCommand(w http.ResponseWriter, r *http.Request) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), commandTimeout(command))
 	defer cancel()
 	result := s.dispatch(ctx, command, args)
 	writeJSON(w, result)
+}
+
+func commandTimeout(command string) time.Duration {
+	if command == "install_update" {
+		return 5 * time.Minute
+	}
+	return 45 * time.Second
 }
 
 func (s *server) handleOpenDialog(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +152,10 @@ func (s *server) dispatch(ctx context.Context, command string, args map[string]a
 		return ok("后端版本已读取。", map[string]any{"version": version})
 	case "load_overview":
 		return s.loadOverview()
+	case "check_update":
+		return s.checkUpdate(ctx)
+	case "install_update":
+		return s.installUpdate(ctx)
 	case "load_install_guide_status":
 		return s.loadInstallGuideStatus(ctx)
 	case "launch_codex_plus":

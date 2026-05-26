@@ -55,14 +55,18 @@ func getBytes(ctx context.Context, rawURL string) ([]byte, error) {
 }
 
 func openURL(rawURL string) error {
+	return openPath(rawURL)
+}
+
+func openPath(path string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", rawURL)
+		cmd = exec.Command("open", path)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	default:
-		cmd = exec.Command("xdg-open", rawURL)
+		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
 }

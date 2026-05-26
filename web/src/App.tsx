@@ -91,8 +91,27 @@ type OverviewResult = CommandResult<{
   latest_launch: LaunchStatus | null;
   current_version: string;
   update_status: string;
+  update?: UpdateResult;
   settings_path: string;
   logs_path: string;
+}>;
+
+type UpdateResult = CommandResult<{
+  updateStatus: string;
+  currentVersion: string;
+  latestVersion?: string;
+  releaseName?: string;
+  tagName?: string;
+  publishedAt?: string;
+  projectUrl: string;
+  releaseUrl: string;
+  platform: string;
+  arch: string;
+  assetName?: string;
+  downloadUrl?: string;
+  downloadedPath?: string;
+  size?: number;
+  contentType?: string;
 }>;
 
 type CodexLatestDownload = {
@@ -175,6 +194,7 @@ type RelayMode = "official" | "mixedApi" | "pureApi";
 const PROTOCOL_PROXY_BASE_URL = "http://127.0.0.1:57321/v1";
 const SCRIPT_MARKET_REPOSITORY_URL = "https://github.com/BigPizzaV3/CodexPlusPlusScriptMarket";
 const PROJECT_REPOSITORY_URL = "https://github.com/hereww/codextools";
+const PROJECT_RELEASES_URL = "https://github.com/hereww/codextools/releases/latest";
 const PROJECT_ISSUES_URL = "https://github.com/hereww/codextools/issues";
 const TELEGRAM_COMMUNITY_URL = "https://t.me/wanai8";
 
@@ -389,6 +409,7 @@ export function App() {
   const [route, setRoute] = useState<Route>(() => loadInitialRoute());
   const [notice, setNotice] = useState<{ title: string; message: string; status?: Status } | null>(null);
   const [overview, setOverview] = useState<OverviewResult | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateResult | null>(null);
   const [installGuideStatus, setInstallGuideStatus] = useState<InstallGuideStatusResult | null>(null);
   const [settings, setSettings] = useState<SettingsResult | null>(null);
   const [relay, setRelay] = useState<RelayResult | null>(null);
@@ -423,6 +444,43 @@ export function App() {
     if (result) {
       setOverview(result);
       if (!silent) showResultNotice("概览已检查", result, { silentSuccess: true });
+    }
+  };
+
+  const checkUpdate = async (silent = false) => {
+    const result = await run(() => call<UpdateResult>("check_update"));
+    if (result) {
+      setUpdateInfo(result);
+      setOverview((current) =>
+        current
+          ? {
+              ...current,
+              update_status: result.updateStatus,
+              update: result,
+            }
+          : current,
+      );
+      if (result.updateStatus === "available" || !silent || !isSuccessStatus(result.status)) {
+        showResultNotice("版本更新", result, { silentSuccess: result.updateStatus !== "available" });
+      }
+    }
+    return result;
+  };
+
+  const installUpdate = async () => {
+    const result = await run(() => call<UpdateResult>("install_update"));
+    if (result) {
+      setUpdateInfo(result);
+      setOverview((current) =>
+        current
+          ? {
+              ...current,
+              update_status: result.updateStatus,
+              update: result,
+            }
+          : current,
+      );
+      showResultNotice("版本更新", result);
     }
   };
 
@@ -559,7 +617,10 @@ export function App() {
       await refreshScriptMarket(true);
     }
     if (next === "providerSync") await refreshSettings(true);
-    if (next === "about") await refreshOverview(true);
+    if (next === "about") {
+      await refreshOverview(true);
+      if (!updateInfo) await checkUpdate(true);
+    }
     if (next === "logs") await refreshLogs(true);
     if (next === "diagnostics") await refreshDiagnostics(true);
     if (next === "maintenance") {
@@ -945,6 +1006,7 @@ export function App() {
       await refreshSettings(true);
       await refreshRelay(true);
       await refreshInstallGuideStatus(true);
+      await checkUpdate(true);
     })();
   }, []);
 
@@ -1066,13 +1128,15 @@ export function App() {
         await refreshWatcher(true);
         showNotice("检查完成", "已刷新 Codex 应用、入口、ChatGPT 登录和 Watcher 状态。", "ok");
       },
+      checkUpdate,
+      installUpdate,
       installWatcher: () => watcherAction("install_watcher"),
       uninstallWatcher: () => watcherAction("uninstall_watcher"),
       enableWatcher: () => watcherAction("enable_watcher"),
       disableWatcher: () => watcherAction("disable_watcher"),
       toggleTheme: () => setTheme((current) => (current === "dark" ? "light" : "dark")),
     }),
-    [route, launchForm, settingsForm, settings, removeOwnedData, logs, diagnostics, theme, relayFiles],
+    [route, launchForm, settingsForm, settings, removeOwnedData, logs, diagnostics, theme, relayFiles, updateInfo],
   );
 
   return (
@@ -1134,6 +1198,7 @@ export function App() {
           {route === "overview" ? (
             <OverviewScreen
               overview={overview}
+              updateInfo={updateInfo}
               settings={settings}
               relay={relay}
               actions={actions}
@@ -1179,7 +1244,7 @@ export function App() {
               actions={actions}
             />
           ) : null}
-          {route === "about" ? <AboutScreen overview={overview} actions={actions} /> : null}
+          {route === "about" ? <AboutScreen overview={overview} updateInfo={updateInfo} actions={actions} /> : null}
           {route === "settings" ? (
             <SettingsScreen settings={settings} theme={theme} form={settingsForm} onFormChange={setSettingsForm} actions={actions} />
           ) : null}
@@ -1228,6 +1293,8 @@ type Actions = {
   setUserScriptEnabled: (key: string, enabled: boolean) => Promise<void>;
   deleteUserScript: (key: string) => Promise<void>;
   openExternalUrl: (url: string) => Promise<void>;
+  checkUpdate: () => Promise<UpdateResult | null>;
+  installUpdate: () => Promise<void>;
   applyRelayInjection: () => Promise<boolean>;
   applyPureApiInjection: () => Promise<boolean>;
   clearRelayInjection: () => Promise<boolean>;
@@ -1258,17 +1325,20 @@ type Actions = {
 
 function OverviewScreen({
   overview,
+  updateInfo,
   settings,
   relay,
   actions,
 }: {
   overview: OverviewResult | null;
+  updateInfo: UpdateResult | null;
   settings: SettingsResult | null;
   relay: RelayResult | null;
   actions: Actions;
 }) {
   const launchMode = settings?.settings.launchMode ?? "patch";
   const apiMode = apiModeLabel(relay);
+  const update = updateInfo ?? overview?.update ?? null;
   const health = healthItems(overview, relay);
   const readyCount = health.filter((item) => item.ok).length;
   const allReady = health.every((item) => item.ok);
@@ -1318,6 +1388,8 @@ function OverviewScreen({
           </div>
         </div>
       </section>
+
+      <UpdateBanner update={update} currentVersion={overview?.current_version ?? "-"} actions={actions} />
 
       <div className="quick-grid">
         <HomeActionCard
@@ -1437,6 +1509,59 @@ function HomeActionCard({
       </span>
       <span className="home-card-action">{actionLabel}</span>
     </button>
+  );
+}
+
+function UpdateBanner({
+  update,
+  currentVersion,
+  actions,
+}: {
+  update: UpdateResult | null;
+  currentVersion: string;
+  actions: Actions;
+}) {
+  const available = update?.updateStatus === "available";
+  const downloaded = update?.updateStatus === "downloaded";
+  const checked = Boolean(update);
+  const latestVersion = update?.latestVersion || update?.tagName || "-";
+  return (
+    <section className={`update-banner ${available ? "available" : checked ? "checked" : ""}`} aria-label="版本更新">
+      <div className="update-banner-icon">
+        {available ? <Download className="h-5 w-5" /> : <RefreshCw className="h-5 w-5" />}
+      </div>
+      <div className="update-banner-copy">
+        <span>CodexTools 更新</span>
+        <strong>
+          {available
+            ? `发现新版本 ${latestVersion}`
+            : downloaded
+              ? "更新包已下载"
+              : checked
+                ? "当前版本状态已检查"
+                : "可以检查是否有新版本"}
+        </strong>
+        <small>
+          {available
+            ? update?.assetName
+              ? `${update.assetName}${update.size ? ` · ${formatBytes(update.size)}` : ""}`
+              : update?.message || "发布页有新版本。"
+            : update?.message || `当前版本：${currentVersion}`}
+        </small>
+      </div>
+      <div className="update-banner-actions">
+        <Button onClick={() => void actions.checkUpdate()} variant={available ? "secondary" : "outline"}>
+          <RefreshCw className="h-4 w-4" />
+          检查更新
+        </Button>
+        {available ? (
+          <Button onClick={() => void actions.installUpdate()}>
+            <Download className="h-4 w-4" />
+            下载更新
+          </Button>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -2434,11 +2559,14 @@ function MaintenanceScreen({
 
 function AboutScreen({
   overview,
+  updateInfo,
   actions,
 }: {
   overview: OverviewResult | null;
+  updateInfo: UpdateResult | null;
   actions: Actions;
 }) {
+  const update = updateInfo ?? overview?.update ?? null;
   return (
     <>
       <Panel>
@@ -2462,6 +2590,34 @@ function AboutScreen({
             <Button onClick={() => void actions.openExternalUrl(TELEGRAM_COMMUNITY_URL)} variant="secondary">
               <MessageCircle className="h-4 w-4" />
               电报群
+            </Button>
+          </Toolbar>
+        </CardContent>
+      </Panel>
+      <Panel>
+        <CardHead title="版本更新" detail={update?.message ?? "检查 GitHub 最新发布并下载当前系统安装包"} />
+        <CardContent>
+          <div className="metric-list">
+            <Metric label="当前版本" value={overview?.current_version ?? update?.currentVersion ?? "-"} />
+            <Metric label="最新版本" value={update?.latestVersion || update?.tagName || "未检查"} />
+            <Metric label="更新状态" value={statusLabel(update?.updateStatus ?? "not_checked")} />
+            <Metric label="安装包" value={update?.assetName || "未选择"} />
+            {update?.downloadedPath ? <Metric label="下载位置" value={update.downloadedPath} /> : null}
+          </div>
+          <Toolbar>
+            <Button onClick={() => void actions.checkUpdate()} variant="secondary">
+              <RefreshCw className="h-4 w-4" />
+              检查更新
+            </Button>
+            {update?.updateStatus === "available" ? (
+              <Button onClick={() => void actions.installUpdate()}>
+                <Download className="h-4 w-4" />
+                下载更新
+              </Button>
+            ) : null}
+            <Button onClick={() => void actions.openExternalUrl(update?.releaseUrl || codexToolsReleaseUrl())} variant="secondary">
+              <ExternalLink className="h-4 w-4" />
+              发布页面
             </Button>
           </Toolbar>
         </CardContent>
@@ -3473,12 +3629,16 @@ function statusLabel(status: string) {
     not_implemented: "未实现",
     disabled: "已禁用",
     unknown: "未知",
+    up_to_date: "已最新",
+    missing_asset: "缺少安装包",
+    downloaded: "已下载",
+    opened_release: "已打开发布页",
   };
   return labels[status] ?? status;
 }
 
 function statusClass(status: string) {
-  if (["found", "installed", "ok", "running", "available"].includes(status)) return "good";
+  if (["found", "installed", "ok", "running", "available", "up_to_date", "downloaded", "opened_release"].includes(status)) return "good";
   if (["failed", "missing"].includes(status)) return "bad";
   return "warn";
 }
@@ -3491,6 +3651,10 @@ function platformLabel(platform: string) {
     unknown: "未知",
   };
   return labels[platform] ?? platform;
+}
+
+function codexToolsReleaseUrl() {
+  return PROJECT_RELEASES_URL;
 }
 
 function isSuccessStatus(status?: Status) {

@@ -322,6 +322,34 @@ func TestSelectCodexMirrorAssetPrefersMacArchitecture(t *testing.T) {
 	}
 }
 
+func TestCompareVersionsHandlesSemverTags(t *testing.T) {
+	if compareVersions("v1.1.13", "1.1.12") <= 0 {
+		t.Fatal("v1.1.13 should be newer than 1.1.12")
+	}
+	if compareVersions("1.2.0", "1.10.0") >= 0 {
+		t.Fatal("1.2.0 should be older than 1.10.0")
+	}
+	if compareVersions("CodexTools 1.1.12", "1.1.12") != 0 {
+		t.Fatal("release name prefix should be ignored")
+	}
+}
+
+func TestSelectCodexToolsAssetPrefersPlatformAndArchitecture(t *testing.T) {
+	asset, ok := selectCodexToolsAsset([]codexAppMirrorAsset{
+		{Name: "CodexTools-1.1.13-windows-x64.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
+		{Name: "CodexTools-1.1.13-macos-x64.zip", BrowserDownloadURL: "https://example.com/macos-x64.zip"},
+		{Name: "CodexTools-1.1.13-macos-arm64.zip", BrowserDownloadURL: "https://example.com/macos-arm64.zip"},
+		{Name: "SHA256SUMS.txt", BrowserDownloadURL: "https://example.com/SHA256SUMS.txt"},
+	}, "darwin", "arm64")
+
+	if !ok {
+		t.Fatal("expected a matching CodexTools asset")
+	}
+	if asset.Name != "CodexTools-1.1.13-macos-arm64.zip" {
+		t.Fatalf("selected wrong asset: %q", asset.Name)
+	}
+}
+
 func TestPickCDPPageTargetPrefersCodexAppPage(t *testing.T) {
 	target, err := pickCDPPageTarget([]cdpTarget{
 		{ID: "worker", Type: "worker", WebSocketDebuggerURL: "ws://127.0.0.1:9229/devtools/page/worker"},
