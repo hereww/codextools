@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/macos"
-VERSION="${VERSION:-1.1.13}"
+VERSION="${VERSION:-1.1.14}"
 ARCH="$(uname -m)"
 case "$ARCH" in
   arm64|aarch64) ARCH_LABEL="arm64" ;;
