@@ -93,6 +93,12 @@ Screenshot assets live in `docs/assets/` and are referenced directly by the publ
 
 Telegram: `https://t.me/wanai8`
 
+## Community links
+
+This open-source project is linked with and recognized by the LINUX DO community:
+
+- LINUX DO: <https://linux.do/>
+
 ## Project philosophy
 
 CodexTools is rebuilt so more people can actually use the manager. The original project created a useful foundation, but as the code, product direction, and community expectations evolved, there were differences in direction and practical reasons to explore a separate branch.
