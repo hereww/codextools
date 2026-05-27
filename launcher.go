@@ -129,10 +129,25 @@ func runLauncher(args []string) error {
 	if len(command) == 0 {
 		return errors.New("无法构建 Codex 启动命令")
 	}
+	if runtime.GOOS == "windows" && !fileExists(command[0]) {
+		err := fmt.Errorf("未找到 Codex.exe：%s", command[0])
+		failure := launchStatus{
+			Status:      "failed",
+			Message:     "启动 Codex 失败：" + err.Error(),
+			StartedAtMS: uint64(time.Now().UnixMilli()),
+			DebugPort:   &debugPort,
+			HelperPort:  &helperPort,
+			CodexApp:    &appPath,
+		}
+		_ = atomicWriteJSON(latestStatusPath(), failure)
+		appendDiagnosticLog("launcher.codex_executable_missing", map[string]any{"command": safeCommandForLog(command), "codex_app": appPath})
+		return err
+	}
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(), codexLaunchEnvironment()...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	hideSubprocessWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		failure := launchStatus{
 			Status:      "failed",
@@ -213,11 +228,23 @@ func buildCodexLaunchCommand(appPath string, debugPort uint16, extraArgs []strin
 
 func buildCodexExecutable(appPath string) string {
 	if runtime.GOOS == "windows" {
+		if isWindowsAppsExecutionAlias(appPath) && fileExists(appPath) {
+			return appPath
+		}
+		if strings.EqualFold(filepath.Base(appPath), "Codex.exe") || strings.EqualFold(filepath.Base(appPath), "codex.exe") {
+			if fileExists(appPath) {
+				return appPath
+			}
+		}
 		candidates := []string{
 			filepath.Join(appPath, "Codex.exe"),
 			filepath.Join(appPath, "codex.exe"),
 			filepath.Join(appPath, "app", "Codex.exe"),
 			filepath.Join(appPath, "app", "codex.exe"),
+			filepath.Join(appPath, "VFS", "ProgramFilesX64", "Codex", "Codex.exe"),
+			filepath.Join(appPath, "VFS", "ProgramFilesX64", "Codex", "codex.exe"),
+			filepath.Join(appPath, "VFS", "ProgramFilesX64", "OpenAI", "Codex", "Codex.exe"),
+			filepath.Join(appPath, "VFS", "ProgramFilesX64", "OpenAI", "Codex", "codex.exe"),
 		}
 		for _, candidate := range candidates {
 			if fileExists(candidate) {
@@ -291,7 +318,9 @@ func macOSAppRunning(appPath string) bool {
 	if strings.TrimSpace(name) == "" {
 		name = "Codex"
 	}
-	out, err := exec.Command("osascript", "-e", fmt.Sprintf(`application "%s" is running`, strings.ReplaceAll(name, `"`, `\"`))).Output()
+	cmd := exec.Command("osascript", "-e", fmt.Sprintf(`application "%s" is running`, strings.ReplaceAll(name, `"`, `\"`)))
+	hideSubprocessWindow(cmd)
+	out, err := cmd.Output()
 	return err == nil && strings.EqualFold(strings.TrimSpace(string(out)), "true")
 }
 
@@ -303,7 +332,9 @@ func quitMacOSApp(appPath string) error {
 	if strings.TrimSpace(name) == "" {
 		name = "Codex"
 	}
-	return exec.Command("osascript", "-e", fmt.Sprintf(`tell application "%s" to quit`, strings.ReplaceAll(name, `"`, `\"`))).Run()
+	cmd := exec.Command("osascript", "-e", fmt.Sprintf(`tell application "%s" to quit`, strings.ReplaceAll(name, `"`, `\"`)))
+	hideSubprocessWindow(cmd)
+	return cmd.Run()
 }
 
 func waitForMacOSAppExit(appPath string, timeout time.Duration) bool {
@@ -323,11 +354,15 @@ func forceKillMacOSApp(appPath string) error {
 	}
 	executable := buildCodexExecutable(appPath)
 	if executable != "" {
-		_ = exec.Command("pkill", "-x", filepath.Base(executable)).Run()
+		cmd := exec.Command("pkill", "-x", filepath.Base(executable))
+		hideSubprocessWindow(cmd)
+		_ = cmd.Run()
 	}
 	name := strings.TrimSuffix(filepath.Base(appPath), ".app")
 	if strings.TrimSpace(name) != "" {
-		_ = exec.Command("pkill", "-x", name).Run()
+		cmd := exec.Command("pkill", "-x", name)
+		hideSubprocessWindow(cmd)
+		_ = cmd.Run()
 	}
 	return nil
 }

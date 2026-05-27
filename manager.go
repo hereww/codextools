@@ -68,10 +68,14 @@ func openManagerApp() error {
 	if runtime.GOOS == "darwin" {
 		app := entrypointPath(true)
 		if fileExists(app) {
-			return exec.Command("open", "-a", app).Start()
+			cmd := exec.Command("open", "-a", app)
+			hideSubprocessWindow(cmd)
+			return cmd.Start()
 		}
 	}
-	return exec.Command(companionBinaryPath(managerBinary)).Start()
+	cmd := exec.Command(companionBinaryPath(managerBinary))
+	hideSubprocessWindow(cmd)
+	return cmd.Start()
 }
 
 func (s *server) handleCommand(w http.ResponseWriter, r *http.Request) {
@@ -590,7 +594,9 @@ func resolveWindowsCodexFromInstalledApps() string {
 	}
 	for _, command := range commands {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		out, err := exec.CommandContext(ctx, command[0], command[1:]...).Output()
+		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+		hideSubprocessWindow(cmd)
+		out, err := cmd.Output()
 		cancel()
 		if err != nil {
 			continue
@@ -642,6 +648,9 @@ func normalizeCodexAppPath(path string) string {
 	if path == "" {
 		return ""
 	}
+	if runtime.GOOS == "windows" && isWindowsAppsExecutionAlias(path) && fileExists(path) {
+		return path
+	}
 	if strings.EqualFold(filepath.Base(path), "Codex.exe") || strings.EqualFold(filepath.Base(path), "codex.exe") {
 		return filepath.Dir(path)
 	}
@@ -654,6 +663,12 @@ func normalizeCodexAppPath(path string) string {
 	if fileExists(filepath.Join(path, "Codex.exe")) || fileExists(filepath.Join(path, "codex.exe")) {
 		return path
 	}
+	for _, subdir := range []string{"app", "VFS", filepath.Join("VFS", "ProgramFilesX64", "Codex"), filepath.Join("VFS", "ProgramFilesX64", "OpenAI", "Codex")} {
+		candidate := filepath.Join(path, subdir)
+		if fileExists(filepath.Join(candidate, "Codex.exe")) || fileExists(filepath.Join(candidate, "codex.exe")) {
+			return candidate
+		}
+	}
 	nested := filepath.Join(path, "app")
 	if isDir(nested) && (fileExists(filepath.Join(nested, "Codex.exe")) || fileExists(filepath.Join(nested, "codex.exe"))) {
 		return nested
@@ -662,6 +677,18 @@ func normalizeCodexAppPath(path string) string {
 		return path
 	}
 	return ""
+}
+
+func isWindowsAppsExecutionAlias(path string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	base := filepath.Base(path)
+	if !strings.EqualFold(base, "Codex.exe") && !strings.EqualFold(base, "codex.exe") {
+		return false
+	}
+	dir := strings.ToLower(filepath.ToSlash(filepath.Dir(path)))
+	return strings.Contains(dir, "/microsoft/windowsapps") || strings.HasSuffix(dir, "/windowsapps")
 }
 
 func codexDetectionPayload(saved, resolved string) map[string]any {
@@ -769,25 +796,48 @@ func (s *server) launchCodex(args map[string]any, restart bool) commandResult {
 	if restart {
 		cmd.Args = append(cmd.Args, "--restart")
 	}
+	hideSubprocessWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		return failed("启动静默入口失败："+err.Error(), map[string]any{"debugPort": debugPort, "helperPort": helperPort})
 	}
-	status := launchStatus{
-		Status:      "accepted",
-		Message:     "Go 管理器已启动静默入口。",
-		StartedAtMS: uint64(time.Now().UnixMilli()),
-		DebugPort:   &debugPort,
-		HelperPort:  &helperPort,
+	latest := waitForLaunchStatusAfter(time.Now().Add(-200*time.Millisecond), 2*time.Second)
+	if latest != nil && latest.Status == "failed" {
+		return failed(latest.Message, map[string]any{"debugPort": debugPort, "helperPort": helperPort, "latest_launch": latest})
 	}
-	if appPath != "" {
-		status.CodexApp = &appPath
+	if latest == nil {
+		accepted := launchStatus{
+			Status:      "accepted",
+			Message:     "Go 管理器已启动静默入口。",
+			StartedAtMS: uint64(time.Now().UnixMilli()),
+			DebugPort:   &debugPort,
+			HelperPort:  &helperPort,
+		}
+		if appPath != "" {
+			accepted.CodexApp = &appPath
+		}
+		_ = atomicWriteJSON(latestStatusPath(), accepted)
+		latest = &accepted
 	}
-	_ = atomicWriteJSON(latestStatusPath(), status)
 	message := "启动任务已在后台开始，可稍后查看概览状态。"
 	if restart {
 		message = "Codex 已请求重启，启动任务正在后台运行。"
 	}
-	return commandResult{"status": "accepted", "message": message, "debugPort": debugPort, "helperPort": helperPort}
+	return commandResult{"status": "accepted", "message": message, "debugPort": debugPort, "helperPort": helperPort, "latest_launch": latest}
+}
+
+func waitForLaunchStatusAfter(after time.Time, timeout time.Duration) *launchStatus {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var status launchStatus
+		if readJSON(latestStatusPath(), &status) == nil && status.StartedAtMS > 0 {
+			started := time.UnixMilli(int64(status.StartedAtMS))
+			if !started.Before(after) {
+				return &status
+			}
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	return nil
 }
 
 func companionBinaryPath(name string) string {

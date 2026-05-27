@@ -68,6 +68,7 @@ func openPath(path string) error {
 	default:
 		cmd = exec.Command("xdg-open", path)
 	}
+	hideSubprocessWindow(cmd)
 	return cmd.Start()
 }
 
@@ -78,7 +79,9 @@ func promptPath(title string, directory bool) string {
 			choose = "folder"
 		}
 		script := fmt.Sprintf(`POSIX path of (choose %s with prompt %q)`, choose, title)
-		out, err := exec.Command("osascript", "-e", script).Output()
+		cmd := exec.Command("osascript", "-e", script)
+		hideSubprocessWindow(cmd)
+		out, err := cmd.Output()
 		if err == nil {
 			return strings.TrimSpace(string(out))
 		}

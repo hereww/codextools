@@ -185,7 +185,9 @@ $shortcut.Description = %s
 $shortcut.IconLocation = %s
 $shortcut.Save()
 `, psQuote(shortcutPath), psQuote(target), psQuote(filepath.Dir(target)), psQuote(description), psQuote(target))
-	return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).Run()
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	hideSubprocessWindow(cmd)
+	return cmd.Run()
 }
 
 func createWindowsShortcutWithArgs(shortcutPath, target, arguments, description string) error {
@@ -205,21 +207,27 @@ $shortcut.IconLocation = %s
 $shortcut.WindowStyle = 7
 $shortcut.Save()
 `, psQuote(shortcutPath), psQuote(target), psQuote(arguments), psQuote(filepath.Dir(target)), psQuote(description), psQuote(target))
-	return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).Run()
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	hideSubprocessWindow(cmd)
+	return cmd.Run()
 }
 
 func windowsRegAddCurrentUserString(key, name, value string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("Windows registry is only supported on Windows")
 	}
-	return exec.Command("reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f").Run()
+	cmd := exec.Command("reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f")
+	hideSubprocessWindow(cmd)
+	return cmd.Run()
 }
 
 func windowsRegDeleteCurrentUserValue(key, name string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("Windows registry is only supported on Windows")
 	}
-	return exec.Command("reg", "delete", key, "/v", name, "/f").Run()
+	cmd := exec.Command("reg", "delete", key, "/v", name, "/f")
+	hideSubprocessWindow(cmd)
+	return cmd.Run()
 }
 
 func psQuote(value string) string {
@@ -327,6 +335,7 @@ func spawnWatcherLauncher(launcherPath string, debugPort int) {
 	cmd.Stdin = nil
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	hideSubprocessWindow(cmd)
 	_ = cmd.Start()
 }
 
