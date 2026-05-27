@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/windows"
-VERSION="${VERSION:-1.1.14}"
+VERSION="${VERSION:-1.1.15}"
 ZIP_PATH="$DIST/CodexTools-${VERSION}-windows-x64.zip"
 SETUP_PATH="$DIST/CodexTools-${VERSION}-windows-x64-setup.exe"
 ZIP_TMP_PATH="$BUILD/CodexTools-${VERSION}-windows-x64.zip.tmp"
