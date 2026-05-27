@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -422,6 +423,20 @@ func TestNormalizeCodexAppPathAcceptsWindowsExecutableAndAppDir(t *testing.T) {
 	}
 	if got := normalizeCodexAppPath(appDir); got != appDir {
 		t.Fatalf("app dir should stay app dir: %q", got)
+	}
+}
+
+func TestWindowsProtectedCodexPackagePathIsRecognized(t *testing.T) {
+	path := `C:\Program Files\WindowsApps\OpenAI.Codex_26.519.11010.0_x64__2p2nqsd0c76g0\app\Codex.exe`
+
+	if runtime.GOOS == "windows" {
+		if !isWindowsProtectedAppPackagePath(path) {
+			t.Fatal("WindowsApps Codex package path should be treated as protected")
+		}
+		return
+	}
+	if isWindowsProtectedAppPackagePath(path) {
+		t.Fatal("protected package path detection should be disabled outside Windows")
 	}
 }
 

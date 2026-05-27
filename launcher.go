@@ -228,6 +228,11 @@ func buildCodexLaunchCommand(appPath string, debugPort uint16, extraArgs []strin
 
 func buildCodexExecutable(appPath string) string {
 	if runtime.GOOS == "windows" {
+		if isWindowsProtectedAppPackagePath(appPath) {
+			if alias := windowsCodexExecutionAlias(); alias != "" {
+				return alias
+			}
+		}
 		if isWindowsAppsExecutionAlias(appPath) && fileExists(appPath) {
 			return appPath
 		}

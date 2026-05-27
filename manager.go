@@ -552,6 +552,9 @@ func resolveCodexApp(saved string) string {
 		}
 	}
 	if runtime.GOOS == "windows" {
+		if alias := windowsCodexExecutionAlias(); alias != "" {
+			return alias
+		}
 		if installed := resolveWindowsCodexFromInstalledApps(); installed != "" {
 			return installed
 		}
@@ -587,6 +590,9 @@ func resolveCodexApp(saved string) string {
 func resolveWindowsCodexFromInstalledApps() string {
 	if runtime.GOOS != "windows" {
 		return ""
+	}
+	if alias := windowsCodexExecutionAlias(); alias != "" {
+		return alias
 	}
 	commands := [][]string{
 		{"powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Sort-Object Version | Select-Object -Last 1 -ExpandProperty InstallLocation`},
@@ -648,6 +654,11 @@ func normalizeCodexAppPath(path string) string {
 	if path == "" {
 		return ""
 	}
+	if runtime.GOOS == "windows" && isWindowsProtectedAppPackagePath(path) {
+		if alias := windowsCodexExecutionAlias(); alias != "" {
+			return alias
+		}
+	}
 	if runtime.GOOS == "windows" && isWindowsAppsExecutionAlias(path) && fileExists(path) {
 		return path
 	}
@@ -689,6 +700,33 @@ func isWindowsAppsExecutionAlias(path string) bool {
 	}
 	dir := strings.ToLower(filepath.ToSlash(filepath.Dir(path)))
 	return strings.Contains(dir, "/microsoft/windowsapps") || strings.HasSuffix(dir, "/windowsapps")
+}
+
+func isWindowsProtectedAppPackagePath(path string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	normalized := strings.ToLower(filepath.ToSlash(path))
+	return strings.Contains(normalized, "/program files/windowsapps/openai.codex_") ||
+		strings.HasPrefix(normalized, "c:/program files/windowsapps/openai.codex_")
+}
+
+func windowsCodexExecutionAlias() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	for _, root := range []string{os.Getenv("LOCALAPPDATA"), filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")} {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		for _, name := range []string{"Codex.exe", "codex.exe"} {
+			candidate := filepath.Join(root, "Microsoft", "WindowsApps", name)
+			if fileExists(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 func codexDetectionPayload(saved, resolved string) map[string]any {
