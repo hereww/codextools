@@ -133,6 +133,10 @@ type CodexLatestDownload = {
 type InstallGuideStatusResult = CommandResult<{
   platform: string;
   arch: string;
+  platformLabel?: string;
+  archLabel?: string;
+  desktopRuntime?: string;
+  desktopRuntimeStatus?: "desktop" | "browser" | string;
   codexApp: PathState;
   codexVersion: string | null;
   codexDetection?: {
@@ -1669,7 +1673,7 @@ function InstallGuideScreen({
           <p>从系统识别、Codex 安装、CCSwitch 导入到连接模式配置，按顺序完成后直接进入启动界面。</p>
         </div>
         <div className="onboarding-summary">
-          <Metric label="系统" value={`${platformLabel(status?.platform ?? "unknown")} · ${status?.arch ?? "-"}`} />
+          <Metric label="系统" value={platformSummary(status)} />
           <Metric label="Codex" value={codexInstalled ? "已安装" : "未检测到"} />
           <Metric label="当前模式" value={relayModeLabel(active.relayMode)} />
         </div>
@@ -1750,26 +1754,35 @@ function GuidePlatformStep({
   actions: Actions;
   onNext: () => void;
 }) {
+  const ready = !!status;
+  const desktopReady = status?.desktopRuntimeStatus === "desktop";
   return (
     <div className="guide-pane">
       <div className="guide-pane-head">
-        <Laptop className="h-5 w-5" />
+        {ready ? <Laptop className="h-5 w-5" /> : <RefreshCw className="h-5 w-5" />}
         <div>
-          <h3>系统已识别</h3>
-          <p>安装包和路径检测会根据当前系统自动切换。</p>
+          <h3>{ready ? "系统已识别" : "正在识别系统"}</h3>
+          <p>{ready ? "安装包、路径检测和桌面运行方式会根据当前系统自动切换。" : "正在读取本机平台、架构和桌面运行方式。"}</p>
         </div>
       </div>
       <div className="guide-facts">
-        <Metric label="系统" value={platformLabel(status?.platform ?? "unknown")} />
-        <Metric label="架构" value={status?.arch ?? "-"} />
+        <Metric label="系统" value={status?.platformLabel || platformLabel(status?.platform ?? "unknown")} />
+        <Metric label="架构" value={status?.archLabel || archLabel(status?.arch ?? "")} />
+        <Metric label="运行框架" value={status?.desktopRuntime || "-"} />
         <Metric label="状态接口" value={status ? statusLabel(status.status) : "加载中"} />
       </div>
+      {ready ? (
+        <div className={`platform-note ${desktopReady ? "" : "limited"}`}>
+          <Info className="h-4 w-4" />
+          <span>{desktopReady ? `${platformSummary(status)} 已使用窗口化桌面运行。` : "当前环境未启用桌面窗口运行，会退回浏览器模式。"}</span>
+        </div>
+      ) : null}
       <Toolbar>
         <Button onClick={() => void actions.refreshInstallGuideStatus()} variant="secondary">
           <RefreshCw className="h-4 w-4" />
           重新检测
         </Button>
-        <Button onClick={onNext}>下一步</Button>
+        <Button disabled={!ready} onClick={onNext}>下一步</Button>
       </Toolbar>
     </div>
   );
@@ -3716,6 +3729,20 @@ function platformLabel(platform: string) {
     unknown: "未知",
   };
   return labels[platform] ?? platform;
+}
+
+function archLabel(arch: string) {
+  const labels: Record<string, string> = {
+    amd64: "x64",
+    arm64: "ARM64",
+    "386": "x86",
+  };
+  return labels[arch] ?? (arch || "-");
+}
+
+function platformSummary(status: InstallGuideStatusResult | null) {
+  if (!status) return "识别中";
+  return `${status.platformLabel || platformLabel(status.platform)} · ${status.archLabel || archLabel(status.arch)}`;
 }
 
 function codexToolsReleaseUrl() {

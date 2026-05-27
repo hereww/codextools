@@ -299,6 +299,10 @@ func (s *server) loadInstallGuideStatus(ctx context.Context) commandResult {
 	payload := map[string]any{
 		"platform":                    runtime.GOOS,
 		"arch":                        runtime.GOARCH,
+		"platformLabel":               platformDisplayName(runtime.GOOS),
+		"archLabel":                   archDisplayName(runtime.GOARCH),
+		"desktopRuntime":              desktopRuntimeName(),
+		"desktopRuntimeStatus":        desktopRuntimeStatus(),
 		"codexApp":                    codexPathState(codexApp),
 		"codexVersion":                codexAppVersion(codexApp),
 		"codexDetection":              codexDetectionPayload(settings.CodexAppPath, codexApp),
@@ -318,6 +322,53 @@ func (s *server) loadInstallGuideStatus(ctx context.Context) commandResult {
 		"activeMode":   activeRelayProfile(settings).RelayMode,
 	}
 	return ok(message, payload)
+}
+
+func platformDisplayName(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macOS"
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	default:
+		return goos
+	}
+}
+
+func archDisplayName(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x64"
+	case "arm64":
+		return "ARM64"
+	case "386":
+		return "x86"
+	default:
+		return goarch
+	}
+}
+
+func desktopRuntimeName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "Windows WebView2 桌面窗口"
+	case "darwin":
+		return "macOS WebKit 桌面窗口"
+	default:
+		if defaultManagerDesktop() {
+			return "桌面窗口"
+		}
+		return "浏览器模式"
+	}
+}
+
+func desktopRuntimeStatus() string {
+	if defaultManagerDesktop() {
+		return "desktop"
+	}
+	return "browser"
 }
 
 func codexInstallURL(download map[string]any) string {

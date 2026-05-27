@@ -139,6 +139,18 @@ func TestDefaultCCSDBPathPrefersExistingHomeDatabase(t *testing.T) {
 	}
 }
 
+func TestPlatformAndArchDisplayNames(t *testing.T) {
+	if got := platformDisplayName("windows"); got != "Windows" {
+		t.Fatalf("windows platform label mismatch: %q", got)
+	}
+	if got := archDisplayName("amd64"); got != "x64" {
+		t.Fatalf("amd64 arch label mismatch: %q", got)
+	}
+	if got := archDisplayName("arm64"); got != "ARM64" {
+		t.Fatalf("arm64 arch label mismatch: %q", got)
+	}
+}
+
 func TestListCCSProvidersReadsSQLiteDatabase(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "cc-switch.db")
 	db, err := openSQLite(dbPath)
