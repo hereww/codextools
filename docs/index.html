@@ -6,12 +6,12 @@
     <title>CodexTools</title>
     <meta
       name="description"
-      content="CodexTools is a standalone Go + React manager for Codex workflows, relay setup, script tooling, diagnostics, and repair operations."
+      content="CodexTools is a standalone Go + React desktop manager for Codex setup, launch, connection modes, UI enhancements, scripts, diagnostics, and repair workflows."
     />
     <meta property="og:title" content="CodexTools" />
     <meta
       property="og:description"
-      content="Standalone Go + React manager for Codex workflows, relay setup, script tooling, diagnostics, and repair operations."
+      content="Standalone Go + React desktop manager for Codex setup, launch, connection modes, UI enhancements, scripts, diagnostics, and repair workflows."
     />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/screenshot-home.png" />
@@ -19,7 +19,7 @@
     <meta name="twitter:title" content="CodexTools" />
     <meta
       name="twitter:description"
-      content="Standalone Go + React manager for Codex workflows, relay setup, script tooling, diagnostics, and repair operations."
+      content="Standalone Go + React desktop manager for Codex setup, launch, connection modes, UI enhancements, scripts, diagnostics, and repair workflows."
     />
     <meta name="twitter:image" content="./assets/screenshot-home.png" />
     <style>
@@ -264,12 +264,12 @@
         margin: 0;
       }
 
-      .release {
+      .capabilities {
         overflow: hidden;
         position: relative;
       }
 
-      .release::before {
+      .capabilities::before {
         content: "";
         position: absolute;
         inset: 0;
@@ -279,18 +279,18 @@
           linear-gradient(315deg, rgba(15, 118, 110, 0.08), transparent 38%);
       }
 
-      .release > * {
+      .capabilities > * {
         position: relative;
       }
 
-      .release-head {
+      .capability-head {
         align-items: flex-start;
         display: flex;
         justify-content: space-between;
         gap: 18px;
       }
 
-      .release-badge {
+      .capability-badge {
         border: 1px solid rgba(19, 103, 209, 0.2);
         border-radius: 999px;
         background: rgba(219, 234, 254, 0.78);
@@ -300,14 +300,14 @@
         padding: 9px 13px;
       }
 
-      .release-grid {
+      .capability-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
         margin-top: 18px;
       }
 
-      .release-item {
+      .capability-item {
         border: 1px solid var(--line);
         border-radius: 18px;
         background: rgba(255, 255, 255, 0.72);
@@ -315,14 +315,14 @@
         min-height: 150px;
       }
 
-      .release-item strong {
+      .capability-item strong {
         color: var(--text);
         display: block;
         font-size: 17px;
         margin-bottom: 8px;
       }
 
-      .release-item p {
+      .capability-item p {
         margin: 0;
       }
 
@@ -407,7 +407,7 @@
         .hero,
         .grid,
         .screenshot-lead,
-        .release-grid,
+        .capability-grid,
         .origin,
         .telegram {
           grid-template-columns: 1fr;
@@ -417,7 +417,7 @@
           display: block;
         }
 
-        .release-head {
+        .capability-head {
           flex-direction: column;
         }
 
@@ -434,10 +434,10 @@
         <div class="brand">
           <h1>CodexTools</h1>
           <p data-lang="en" class="active">
-            A standalone manager extracted from the Codex++ Go refactor, designed to make launch, relay setup, script management, diagnostics, and repair workflows clearer for non-technical users.
+            A standalone desktop manager for Codex setup, launch, connection modes, UI enhancements, scripts, diagnostics, and repair workflows.
           </p>
           <p data-lang="zh">
-            这是从 Codex++ Go 重构版中独立拆出的管理器项目，目标是把启动、Relay 配置、脚本管理、诊断和修复流程做得更适合非技术用户。
+            一个独立桌面管理器，用来集中处理 Codex 安装配置、启动、连接模式、界面增强、脚本、诊断和修复流程。
           </p>
         </div>
         <div class="lang-switch">
@@ -449,9 +449,9 @@
       <section class="hero">
         <div class="hero-copy">
           <div data-lang="en" class="active">
-            <h2>One repository for the refactored manager, ready to ship on its own.</h2>
+            <h2>A clearer control center for running Codex locally.</h2>
             <p>
-              CodexTools keeps the refactored Go backend and the redesigned React manager UI in one standalone project. It reduces monorepo coupling, preserves the existing command surface, and presents a simpler interface for setup, launch, and recovery.
+              CodexTools packages the Go backend, desktop launcher, React manager, relay tools, repair actions, and user-facing enhancements into one project. The interface is built for people who want to start Codex, pick a connection mode, fix common problems, and keep useful page tools available without editing config files by hand.
             </p>
             <div class="hero-links">
               <a class="primary" href="../README.md">Open README</a>
@@ -460,9 +460,9 @@
             </div>
           </div>
           <div data-lang="zh">
-            <h2>把重构后的管理器独立成一个可以单独发布的仓库。</h2>
+            <h2>一个更清楚的本地 Codex 控制中心。</h2>
             <p>
-              CodexTools 把 Go 后端和重新设计后的 React 管理界面放进同一个独立项目中，降低对原单体仓库的路径依赖，同时保留原有命令能力，并把配置、启动和修复流程做得更直观。
+              CodexTools 把 Go 后端、桌面启动器、React 管理界面、中转工具、修复动作和常用页面增强集中到一个项目里。普通用户可以直接启动 Codex、选择连接模式、处理常见问题，不需要手动编辑本地配置文件。
             </p>
             <div class="hero-links">
               <a class="primary" href="../README.zh-CN.md">查看说明</a>
@@ -597,62 +597,62 @@ docs/                GitHub Pages 资源</pre>
         </div>
       </section>
 
-      <section class="section release">
+      <section class="section capabilities">
         <div data-lang="en" class="active">
-          <div class="release-head">
+          <div class="capability-head">
             <div>
-              <h3>New in CodexTools 1.1.8</h3>
+              <h3>What is already built</h3>
               <p>
-                This release focuses on making the standalone manager easier to install, safer to launch, and clearer when users switch between official login and relay/API modes.
+                The current project is more than a wrapper. It includes the desktop manager, first-run guide, connection mode management, page enhancements, script center, repair tools, diagnostics, and packaged downloads.
               </p>
             </div>
-            <span class="release-badge">v1.1.8</span>
+            <span class="capability-badge">Current scope</span>
           </div>
-          <div class="release-grid">
-            <article class="release-item">
-              <strong>Ready-to-use desktop builds</strong>
-              <p>macOS and Windows packages are now published from the standalone project, with direct download links on the downloads page.</p>
+          <div class="capability-grid">
+            <article class="capability-item">
+              <strong>Desktop packages</strong>
+              <p>macOS and Windows downloads are published from this standalone repository, including installer-style and portable package options.</p>
             </article>
-            <article class="release-item">
-              <strong>Relay mode switcher</strong>
-              <p>The manager restores a clearer mode switch for official login, compatible API, and relay workflows.</p>
+            <article class="capability-item">
+              <strong>Guided setup</strong>
+              <p>The beginner flow checks system status, detects Codex, imports CCSwitch providers, selects a connection mode, and ends at launch.</p>
             </article>
-            <article class="release-item">
-              <strong>Mixed API restart fixes</strong>
-              <p>Restart handling was adjusted so switching API modes is less confusing and avoids stale launch state.</p>
+            <article class="capability-item">
+              <strong>Connection modes</strong>
+              <p>Official login, mixed API, and relay API workflows are managed from one screen with provider selection and connectivity checks.</p>
             </article>
-            <article class="release-item">
-              <strong>Safer launcher behavior</strong>
-              <p>If injection fails, the launcher now degrades more gracefully instead of leaving non-technical users stuck at a dead end.</p>
+            <article class="capability-item">
+              <strong>Support tooling</strong>
+              <p>Repair actions, provider sync, logs, and copyable diagnostics are built in so users can recover or ask for help with useful context.</p>
             </article>
           </div>
         </div>
         <div data-lang="zh">
-          <div class="release-head">
+          <div class="capability-head">
             <div>
-              <h3>CodexTools 1.1.8 新版本内容</h3>
+              <h3>目前已经做好的功能</h3>
               <p>
-                这一版重点解决独立安装、桌面启动、官方登录与中转/API 模式切换时的稳定性问题，让非技术用户更容易判断下一步该做什么。
+                当前项目不只是一个启动壳，已经包含桌面管理器、新手引导、连接模式管理、页面增强、脚本中心、修复工具、诊断报告和下载包发布。
               </p>
             </div>
-            <span class="release-badge">v1.1.8</span>
+            <span class="capability-badge">当前范围</span>
           </div>
-          <div class="release-grid">
-            <article class="release-item">
-              <strong>独立桌面下载包</strong>
-              <p>macOS 和 Windows 包已经从独立项目发布，下载页提供直接下载入口。</p>
+          <div class="capability-grid">
+            <article class="capability-item">
+              <strong>桌面下载包</strong>
+              <p>macOS 和 Windows 下载包已经从这个独立仓库发布，包含安装包和便携包等使用方式。</p>
             </article>
-            <article class="release-item">
-              <strong>中转模式切换</strong>
-              <p>恢复更清晰的模式切换入口，方便在官方登录、兼容 API 和中转流程之间切换。</p>
+            <article class="capability-item">
+              <strong>新手引导</strong>
+              <p>按顺序检查系统、识别 Codex、导入 CCSwitch 供应商、选择连接模式，并最终进入启动。</p>
             </article>
-            <article class="release-item">
-              <strong>混合 API 重启修复</strong>
-              <p>优化模式切换后的重启处理，减少旧启动状态残留导致的误判。</p>
+            <article class="capability-item">
+              <strong>连接模式</strong>
+              <p>官方登录、官方混合 API 和中转 API 都集中在一个界面里管理，支持供应商选择和连通性检查。</p>
             </article>
-            <article class="release-item">
-              <strong>启动器降级处理</strong>
-              <p>当注入失败时，启动器会更平稳地降级处理，避免用户卡在不可理解的失败状态。</p>
+            <article class="capability-item">
+              <strong>支持工具</strong>
+              <p>内置修复动作、历史会话同步、日志和可复制诊断报告，方便用户恢复环境或带着有效信息求助。</p>
             </article>
           </div>
         </div>

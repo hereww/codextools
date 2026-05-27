@@ -2,14 +2,15 @@
 
 [![README in Chinese](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-0f766e)](./README.zh-CN.md)
 
-CodexTools is a standalone Go + React manager extracted from the Codex++ refactor work.
-It keeps the task-oriented manager UI, the relay and provider tooling, script management, diagnostics, and repair workflows in one repo that can be built and published independently.
+CodexTools is a standalone Go + React desktop manager for Codex setup, launch, connection modes, UI enhancements, scripts, diagnostics, and repair workflows.
+It keeps the task-oriented manager UI, relay and provider tooling, script management, local repair actions, packaged downloads, and support diagnostics in one repo that can be built and published independently.
 
 ## What it includes
 
 - A Go backend that serves the web UI and keeps the command contract stable.
 - A Gemini-inspired manager UI redesigned for non-technical users.
-- Relay profile management, provider sync, script market integration, logs, diagnostics, and repair tools.
+- Guided first-run setup, launch status, connection mode selection, relay profile management, provider sync, script market integration, logs, diagnostics, and repair tools.
+- macOS and Windows desktop packages published from this repository.
 - A self-contained repository layout so the manager can be built without the original monorepo.
 
 ## Repository layout
@@ -87,13 +88,6 @@ The guided flow checks platform and architecture, confirms Codex installation, i
 - UI features: session delete, Markdown export, project move, Timeline, plugin entry unlock, and forced plugin install controls.
 
 Screenshot assets live in `docs/assets/` and are referenced directly by the public project page.
-
-## New in 1.1.8
-
-- Published standalone macOS and Windows desktop packages from this repository.
-- Restored clearer relay mode switching for official login, compatible API, and relay workflows.
-- Fixed restart handling when users switch mixed API modes.
-- Improved launcher behavior so injection failures degrade more gracefully.
 
 ## Telegram community
 
