@@ -857,14 +857,14 @@ func TestSelectCodexToolsAssetPrefersPlatformAndArchitecture(t *testing.T) {
 
 func TestSelectCodexToolsAssetPrefersMacOSInstaller(t *testing.T) {
 	asset, ok := selectCodexToolsAsset([]codexAppMirrorAsset{
-		{Name: "CodexTools-1.1.17-macos-arm64.zip", BrowserDownloadURL: "https://example.com/macos-arm64.zip"},
-		{Name: "CodexTools-1.1.17-macos-arm64.pkg", BrowserDownloadURL: "https://example.com/macos-arm64.pkg"},
+		{Name: "CodexTools-1.1.18-macos-arm64.zip", BrowserDownloadURL: "https://example.com/macos-arm64.zip"},
+		{Name: "CodexTools-1.1.18-macos-arm64.pkg", BrowserDownloadURL: "https://example.com/macos-arm64.pkg"},
 	}, "darwin", "arm64")
 
 	if !ok {
 		t.Fatal("expected a matching CodexTools asset")
 	}
-	if asset.Name != "CodexTools-1.1.17-macos-arm64.pkg" {
+	if asset.Name != "CodexTools-1.1.18-macos-arm64.pkg" {
 		t.Fatalf("selected wrong asset: %q", asset.Name)
 	}
 }

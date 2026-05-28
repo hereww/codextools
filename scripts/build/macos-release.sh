@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/macos"
-VERSION="${VERSION:-1.1.17}"
+VERSION="${VERSION:-1.1.18}"
 TARGET_ARCHES="${TARGET_ARCHES:-arm64 amd64}"
 export COPYFILE_DISABLE=1
 
