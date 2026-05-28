@@ -40,9 +40,6 @@ func runLauncher(args []string) error {
 	if appPath == "" {
 		appPath = resolveCodexApp(settings.CodexAppPath)
 	}
-	if appPath == "" {
-		return errors.New("未找到 Codex 安装目录，请先在管理器中设置 Codex App 路径")
-	}
 	debugPort := options.debugPort
 	if debugPort == 0 {
 		debugPort = 9229
@@ -50,6 +47,12 @@ func runLauncher(args []string) error {
 	helperPort := options.helperPort
 	if helperPort == 0 {
 		helperPort = 57321
+	}
+	if appPath == "" {
+		err := errors.New("未找到 Codex 安装目录，请先在管理器中设置 Codex App 路径")
+		writeLaunchFailureStatus("启动 Codex 失败："+err.Error(), debugPort, helperPort, nil)
+		appendDiagnosticLog("launcher.codex_app_missing", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "error": err.Error()})
+		return err
 	}
 	runtimeState := &launcherRuntime{settings: settings, debugPort: debugPort}
 	if shouldQuitRunningCodexBeforeLaunch(appPath, debugPort, options.restart) {
@@ -160,6 +163,18 @@ func runLauncher(args []string) error {
 	return reapLauncherChild(launch, appPath, debugPort, helperPort)
 }
 
+func writeLaunchFailureStatus(message string, debugPort, helperPort uint16, appPath *string) {
+	failure := launchStatus{
+		Status:      "failed",
+		Message:     message,
+		StartedAtMS: uint64(time.Now().UnixMilli()),
+		DebugPort:   &debugPort,
+		HelperPort:  &helperPort,
+		CodexApp:    appPath,
+	}
+	_ = atomicWriteJSON(latestStatusPath(), failure)
+}
+
 func parseLaunchRequest(args []string) launchRequest {
 	var request launchRequest
 	for i := 0; i < len(args); i++ {
@@ -254,28 +269,31 @@ func buildCodexExecutable(appPath string) string {
 func startCodexApp(appPath string, debugPort uint16, extraArgs []string) (codexLaunchHandle, error) {
 	command := buildCodexLaunchCommand(appPath, debugPort, extraArgs)
 	if runtime.GOOS == "windows" {
+		if activation := buildWindowsPackagedActivation(appPath, debugPort, extraArgs); activation != nil {
+			processID, activationErr := activateWindowsPackagedAppWithEnvironment(activation.appUserModelID, activation.arguments, codexLaunchEnvironment())
+			if activationErr == nil {
+				activation.processID = processID
+				return activation, nil
+			}
+			explorerHandle, explorerErr := startWindowsPackagedAppViaExplorer(activation.appUserModelID, debugPort, buildCodexArguments(debugPort, extraArgs))
+			if explorerErr == nil {
+				return explorerHandle, nil
+			}
+			if len(command) == 0 || strings.TrimSpace(command[0]) == "" || !fileExists(command[0]) {
+				return nil, fmt.Errorf("无法激活 Windows Codex 应用 %s：%w；explorer 兜底也失败：%v", activation.appUserModelID, activationErr, explorerErr)
+			}
+			handle, err := startCodexProcess(command)
+			if err == nil {
+				return handle, nil
+			}
+			return nil, fmt.Errorf("MSIX 激活 %s 失败：%v；explorer 兜底失败：%v；直接启动 %s 也失败：%w", activation.appUserModelID, activationErr, explorerErr, command[0], err)
+		}
 		if len(command) > 0 && strings.TrimSpace(command[0]) != "" && fileExists(command[0]) {
 			handle, err := startCodexProcess(command)
 			if err == nil {
 				return handle, nil
 			}
-			if activation := buildWindowsPackagedActivation(appPath, debugPort, extraArgs); activation != nil {
-				processID, activationErr := activateWindowsPackagedAppWithEnvironment(activation.appUserModelID, activation.arguments, codexLaunchEnvironment())
-				if activationErr != nil {
-					return nil, fmt.Errorf("无法启动 Codex 可执行文件 %s：%w；MSIX 激活 %s 也失败：%v", command[0], err, activation.appUserModelID, activationErr)
-				}
-				activation.processID = processID
-				return activation, nil
-			}
 			return nil, err
-		}
-		if activation := buildWindowsPackagedActivation(appPath, debugPort, extraArgs); activation != nil {
-			processID, activationErr := activateWindowsPackagedAppWithEnvironment(activation.appUserModelID, activation.arguments, codexLaunchEnvironment())
-			if activationErr != nil {
-				return nil, fmt.Errorf("无法激活 Windows Codex 应用 %s：%w", activation.appUserModelID, activationErr)
-			}
-			activation.processID = processID
-			return activation, nil
 		}
 	}
 	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
@@ -302,7 +320,22 @@ func buildWindowsPackagedActivation(appPath string, debugPort uint16, extraArgs 
 	return &windowsPackagedActivation{
 		appUserModelID: appUserModelID,
 		arguments:      commandLineArguments(buildCodexArguments(debugPort, extraArgs)),
+		debugPort:      debugPort,
 	}
+}
+
+func windowsPackagedExplorerCommand(appUserModelID string, args []string) []string {
+	command := []string{"explorer.exe", `shell:AppsFolder\` + appUserModelID}
+	return append(command, args...)
+}
+
+func startWindowsPackagedAppViaExplorer(appUserModelID string, debugPort uint16, args []string) (codexLaunchHandle, error) {
+	command := windowsPackagedExplorerCommand(appUserModelID, args)
+	handle, err := startCodexProcess(command)
+	if err != nil {
+		return nil, err
+	}
+	return &windowsPackagedExplorerLaunch{codexLaunchHandle: handle, appUserModelID: appUserModelID, command: command, debugPort: debugPort}, nil
 }
 
 func commandLineArguments(args []string) string {
@@ -524,10 +557,80 @@ func (launch *codexProcessLaunch) logPayload() map[string]any {
 type windowsPackagedActivation struct {
 	appUserModelID string
 	arguments      string
+	debugPort      uint16
 	processID      uint32
 }
 
+type windowsPackagedExplorerLaunch struct {
+	codexLaunchHandle
+	appUserModelID string
+	command        []string
+	debugPort      uint16
+}
+
+func (launch *windowsPackagedExplorerLaunch) wait() error {
+	if launch.codexLaunchHandle == nil {
+		return nil
+	}
+	_ = launch.codexLaunchHandle.wait()
+	if !waitForCDPPortAvailable(launch.debugPort, 30*time.Second) {
+		return fmt.Errorf("explorer 已请求激活 %s，但未检测到 Codex 调试端口 %d", launch.appUserModelID, launch.debugPort)
+	}
+	for {
+		if !tcpPortAccepting(launch.debugPort) {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (launch *windowsPackagedExplorerLaunch) terminate() error {
+	if launch.codexLaunchHandle == nil {
+		return nil
+	}
+	return launch.codexLaunchHandle.terminate()
+}
+
+func (launch *windowsPackagedExplorerLaunch) logPayload() map[string]any {
+	return map[string]any{
+		"type":           "windows_packaged_explorer",
+		"appUserModelId": launch.appUserModelID,
+		"command":        safeCommandForLog(launch.command),
+	}
+}
+
+func waitForCDPPortAvailable(port uint16, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if tcpPortAccepting(port) {
+			return true
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return tcpPortAccepting(port)
+}
+
+func tcpPortAccepting(port uint16) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 400*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func (activation *windowsPackagedActivation) wait() error {
+	if activation.processID == 0 {
+		if !waitForCDPPortAvailable(activation.debugPort, 30*time.Second) {
+			return fmt.Errorf("MSIX 已请求激活 %s，但未检测到 Codex 调试端口 %d", activation.appUserModelID, activation.debugPort)
+		}
+		for {
+			if !tcpPortAccepting(activation.debugPort) {
+				return nil
+			}
+			time.Sleep(time.Second)
+		}
+	}
 	return waitForWindowsProcessID(activation.processID)
 }
 

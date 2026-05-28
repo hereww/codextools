@@ -364,20 +364,24 @@ func (s *server) applyRelayInjection(pure bool) commandResult {
 	settings := loadSettings()
 	relay := activeRelayProfile(settings)
 	useSavedFiles := strings.TrimSpace(relay.ConfigContents) != "" &&
-		(strings.TrimSpace(relay.AuthContents) != "" || relay.RelayMode == "mixedApi")
+		(pure || strings.TrimSpace(relay.AuthContents) != "" || relay.RelayMode == "mixedApi")
 	if !pure && relay.RelayMode == "mixedApi" {
 		if err := writeOfficialAuthForRelay(home, relay); err != nil {
 			return failed("切换官方混合 API 失败："+err.Error(), relayStatusFromHome(home))
 		}
 	}
-	if !pure && useSavedFiles {
+	if useSavedFiles {
 		if err := os.MkdirAll(home, 0o755); err != nil {
 			return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
 		}
-		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(relay.ConfigContents), 0o644); err != nil {
+		configContents := relay.ConfigContents
+		if pure {
+			configContents = ensureConfigBearerToken(configContents, strings.TrimSpace(relay.APIKey))
+		}
+		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(configContents), 0o644); err != nil {
 			return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
 		}
-		if strings.TrimSpace(relay.AuthContents) != "" {
+		if !pure && strings.TrimSpace(relay.AuthContents) != "" {
 			if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(relay.AuthContents), 0o644); err != nil {
 				return failed("切换完整中转配置失败："+err.Error(), relayStatusFromHome(home))
 			}
@@ -387,6 +391,9 @@ func (s *server) applyRelayInjection(pure bool) commandResult {
 		payload["pluginRepair"] = map[string]any{"status": repairResult.Status, "pluginCount": repairResult.PluginCount, "marketplaceCount": repairResult.MarketplaceCount, "backupPath": repairResult.BackupPath}
 		if repairResult.Status == "failed" {
 			return failed("已切换完整中转配置，但插件恢复失败："+repairResult.Message, payload)
+		}
+		if pure {
+			return ok("中转 API 模式已写入：config.toml 使用当前供应商保存配置，auth.json 保持现有登录状态，并恢复插件配置。", payload)
 		}
 		return ok("已切换到当前中转的完整 config.toml / auth.json，并恢复插件配置。", payload)
 	}
@@ -406,7 +413,7 @@ func (s *server) applyRelayInjection(pure bool) commandResult {
 		return failed("中转配置已写入，但插件恢复失败："+repairResult.Message, payload)
 	}
 	if pure {
-		return ok("中转 API 模式已写入：auth.json 已切换为 OPENAI_API_KEY，config.toml 已写入 CodexPlusPlus provider，并恢复插件配置。", payload)
+		return ok("中转 API 模式已写入：config.toml 已写入 CodexPlusPlus provider，auth.json 保持现有登录状态，并恢复插件配置。", payload)
 	}
 	return ok("中转配置已写入，密钥未在界面明文显示，并恢复插件配置。", payload)
 }
@@ -444,12 +451,6 @@ func applyRelayConfig(home string, relay relayProfile, pure bool) error {
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
-	}
-	if pure {
-		authPayload, _ := json.MarshalIndent(map[string]string{"OPENAI_API_KEY": strings.TrimSpace(relay.APIKey)}, "", "  ")
-		if err := os.WriteFile(filepath.Join(home, "auth.json"), authPayload, 0o644); err != nil {
-			return err
-		}
 	}
 	configPath := filepath.Join(home, "config.toml")
 	existing, _ := os.ReadFile(configPath)

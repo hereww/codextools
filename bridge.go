@@ -77,7 +77,9 @@ func (r *launcherRuntime) handleBridgeRequest(path string, payload json.RawMessa
 		result = zedRemoteStatusValue()
 	case "/zed-remote/resolve-host", "/zed-remote/fallback-request", "/zed-remote/open":
 		result = map[string]any{"status": "failed", "message": "Go 管理器暂未实现 Zed Remote 桥接"}
-	case "/delete", "/undo", "/export-markdown", "/archived-thread", "/move-thread-workspace", "/thread-sort-key", "/thread-sort-keys":
+	case "/delete", "/undo", "/archived-thread", "/move-thread-workspace", "/thread-sort-key", "/thread-sort-keys":
+		result = handleSessionDataRoute(path, payloadMap)
+	case "/export-markdown":
 		result = unsupportedBridgeDataRoute(path, payloadMap)
 	default:
 		result = map[string]any{"status": "failed", "message": "Unknown bridge path", "path": path}

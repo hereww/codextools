@@ -229,6 +229,130 @@ func TestListCCSProvidersReadsSQLiteDatabase(t *testing.T) {
 	}
 }
 
+func TestListCCSProvidersReadsSettingsConfigVariants(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "cc-switch.db")
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE providers (providerId TEXT, displayName TEXT, settingsConfig TEXT)`); err != nil {
+		t.Fatalf("failed to create providers table: %v", err)
+	}
+	configText := strings.Join([]string{
+		`model_provider = "CodexPlusPlus"`,
+		`[model_providers.CodexPlusPlus]`,
+		`wire_api = "chat"`,
+		`base_url = "https://relay.example.com/v1/"`,
+		`experimental_bearer_token = "toml-key"`,
+	}, "\n")
+	settingsConfig, _ := json.Marshal(map[string]any{
+		"config": configText,
+		"auth":   `{"tokens":{"id_token":"official-token"}}`,
+	})
+	if _, err := db.Exec(`INSERT INTO providers (providerId, displayName, settingsConfig) VALUES (?, ?, ?)`, "provider-2", "Relay Two", string(settingsConfig)); err != nil {
+		t.Fatalf("failed to insert provider: %v", err)
+	}
+
+	providers, err := listCCSProviders(dbPath)
+	if err != nil {
+		t.Fatalf("failed to list providers: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("provider count mismatch: %d", len(providers))
+	}
+	provider := providers[0]
+	if provider.SourceID != "provider-2" || provider.Name != "Relay Two" {
+		t.Fatalf("provider identity mismatch: %#v", provider)
+	}
+	if provider.BaseURL != "https://relay.example.com/v1" || provider.APIKey != "toml-key" || provider.Protocol != "chatCompletions" {
+		t.Fatalf("provider settings mismatch: %#v", provider)
+	}
+	if provider.ConfigContents != configText {
+		t.Fatalf("config contents mismatch:\n%s", provider.ConfigContents)
+	}
+	if provider.AuthContents != `{"tokens":{"id_token":"official-token"}}` {
+		t.Fatalf("auth contents mismatch: %q", provider.AuthContents)
+	}
+}
+
+func TestListCCSProvidersReadsRawTomlConfigColumn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "cc-switch.db")
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE providers (id TEXT, name TEXT, config TEXT, app_type TEXT)`); err != nil {
+		t.Fatalf("failed to create providers table: %v", err)
+	}
+	configText := strings.Join([]string{
+		`model_provider = "CodexPlusPlus"`,
+		`[model_providers.CodexPlusPlus]`,
+		`base_url = "https://relay.example.com/v1"`,
+		`experimental_bearer_token = "raw-key"`,
+	}, "\n")
+	if _, err := db.Exec(`INSERT INTO providers (id, name, config, app_type) VALUES (?, ?, ?, ?)`, "provider-3", "Relay Three", configText, "codex"); err != nil {
+		t.Fatalf("failed to insert provider: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO providers (id, name, config, app_type) VALUES (?, ?, ?, ?)`, "provider-4", "Other", configText, "claude"); err != nil {
+		t.Fatalf("failed to insert non-codex provider: %v", err)
+	}
+
+	providers, err := listCCSProviders(dbPath)
+	if err != nil {
+		t.Fatalf("failed to list providers: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("provider count mismatch: %d", len(providers))
+	}
+	if providers[0].SourceID != "provider-3" || providers[0].APIKey != "raw-key" || providers[0].ConfigContents != configText {
+		t.Fatalf("provider mismatch: %#v", providers[0])
+	}
+}
+
+func TestListCCSProvidersReadsMetaAPIFormatAndFillsBearerToken(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "cc-switch.db")
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE providers (id TEXT, name TEXT, settings_config TEXT, meta TEXT, app_type TEXT)`); err != nil {
+		t.Fatalf("failed to create providers table: %v", err)
+	}
+	configText := strings.Join([]string{
+		`model_provider = "custom"`,
+		`[model_providers.custom]`,
+		`name = "Custom"`,
+		`wire_api = "responses"`,
+		`base_url = "https://relay.example.com/v1"`,
+	}, "\n")
+	settingsConfig, _ := json.Marshal(map[string]any{
+		"config": configText,
+		"auth":   map[string]any{"OPENAI_API_KEY": "auth-key"},
+	})
+	meta, _ := json.Marshal(map[string]any{"apiFormat": "openai_chat"})
+	if _, err := db.Exec(`INSERT INTO providers (id, name, settings_config, meta, app_type) VALUES (?, ?, ?, ?, ?)`, "provider-5", "Relay Five", string(settingsConfig), string(meta), "codex"); err != nil {
+		t.Fatalf("failed to insert provider: %v", err)
+	}
+
+	providers, err := listCCSProviders(dbPath)
+	if err != nil {
+		t.Fatalf("failed to list providers: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("provider count mismatch: %d", len(providers))
+	}
+	provider := providers[0]
+	if provider.Protocol != "chatCompletions" || provider.APIKey != "auth-key" {
+		t.Fatalf("provider metadata mismatch: %#v", provider)
+	}
+	if !strings.Contains(provider.ConfigContents, `experimental_bearer_token = "auth-key"`) {
+		t.Fatalf("config should be filled with bearer token:\n%s", provider.ConfigContents)
+	}
+}
+
 func TestOfficialModeRequiresBoundOfficialAuth(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -319,6 +443,8 @@ func TestPureAPIModeKeepsOfficialBindingInactive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	officialAuth := fakeChatGPTAuthJSON(t, "stored@example.com")
+	currentAuth := fakeChatGPTAuthJSON(t, "current@example.com")
+	writeTestFile(t, filepath.Join(home, ".codex", "auth.json"), currentAuth)
 	settings := defaultSettings()
 	settings.RelayProfiles = []relayProfile{{
 		ID:                   "pure",
@@ -341,12 +467,65 @@ func TestPureAPIModeKeepsOfficialBindingInactive(t *testing.T) {
 		t.Fatalf("pure API switch should succeed: %#v", result)
 	}
 	auth, _ := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
-	if !strings.Contains(string(auth), `"OPENAI_API_KEY": "pure-key"`) {
-		t.Fatalf("pure API auth should use API key, got:\n%s", string(auth))
+	if string(auth) != currentAuth {
+		t.Fatalf("pure API mode should preserve auth.json, got:\n%s", string(auth))
+	}
+	config, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if !strings.Contains(string(config), `experimental_bearer_token = "pure-key"`) {
+		t.Fatalf("pure API config should carry provider bearer token:\n%s", string(config))
 	}
 	loaded := loadSettings()
 	if activeRelayProfile(loaded).OfficialAccountLabel != "stored@example.com" {
 		t.Fatal("pure API mode should not remove stored official binding")
+	}
+}
+
+func TestPureAPIModeWritesImportedConfigWithoutAuthOverwrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	currentAuth := fakeChatGPTAuthJSON(t, "current@example.com")
+	writeTestFile(t, filepath.Join(home, ".codex", "auth.json"), currentAuth)
+	importedConfig := strings.Join([]string{
+		`model_provider = "custom"`,
+		`[model_providers.custom]`,
+		`name = "Custom"`,
+		`wire_api = "responses"`,
+		`base_url = "https://imported.example.com/v1"`,
+	}, "\n")
+	settings := defaultSettings()
+	settings.RelayProfiles = []relayProfile{{
+		ID:             "pure-imported",
+		Name:           "Pure Imported",
+		BaseURL:        "https://fallback.example.com",
+		APIKey:         "imported-key",
+		RelayMode:      "pureApi",
+		Protocol:       "responses",
+		ConfigContents: importedConfig,
+	}}
+	settings.ActiveRelayID = "pure-imported"
+	if err := saveSettings(settings); err != nil {
+		t.Fatalf("failed to save settings: %v", err)
+	}
+
+	result := (&server{}).applyRelayInjection(true)
+
+	if result["status"] != "ok" {
+		t.Fatalf("pure API switch should succeed: %#v", result)
+	}
+	auth, _ := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
+	if string(auth) != currentAuth {
+		t.Fatalf("pure API mode should preserve auth.json, got:\n%s", string(auth))
+	}
+	config, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	configText := string(config)
+	if !strings.Contains(configText, `base_url = "https://imported.example.com/v1"`) {
+		t.Fatalf("pure API should write imported config.toml:\n%s", configText)
+	}
+	if strings.Contains(configText, "fallback.example.com") {
+		t.Fatalf("pure API should not regenerate over imported config:\n%s", configText)
+	}
+	if !strings.Contains(configText, `experimental_bearer_token = "imported-key"`) {
+		t.Fatalf("pure API should ensure bearer token in imported config:\n%s", configText)
 	}
 }
 
@@ -581,9 +760,9 @@ func TestBuildWindowsPackagedActivationArguments(t *testing.T) {
 	}
 }
 
-func TestCodexLaunchPayloadPrefersExecutableWhenReadable(t *testing.T) {
+func TestCodexLaunchPayloadPrefersPackagedActivationWhenReadable(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		t.Skip("Windows executable preference only applies on Windows")
+		t.Skip("Windows packaged activation preference only applies on Windows")
 	}
 	appDir := filepath.Join(t.TempDir(), "OpenAI.Codex_26.519.11010.0_x64__2p2nqsd0c76g0", "app")
 	exe := filepath.Join(appDir, "Codex.exe")
@@ -591,11 +770,22 @@ func TestCodexLaunchPayloadPrefersExecutableWhenReadable(t *testing.T) {
 
 	payload := codexLaunchPayload(appDir)
 
-	if got := stringFromAny(payload["method"]); got != "executable" {
-		t.Fatalf("readable app dir should prefer 1.1.12 executable launch: %#v", payload)
+	if got := stringFromAny(payload["method"]); got != "packaged_activation" {
+		t.Fatalf("readable MSIX app dir should prefer packaged activation: %#v", payload)
 	}
 	if got := stringFromAny(payload["executable"]); got != exe {
 		t.Fatalf("executable mismatch: %q", got)
+	}
+}
+
+func TestWindowsPackagedExplorerCommandShape(t *testing.T) {
+	command := windowsPackagedExplorerCommand("OpenAI.Codex_abc!App", []string{"--remote-debugging-port=9229"})
+
+	if len(command) != 3 {
+		t.Fatalf("command length mismatch: %#v", command)
+	}
+	if command[0] != "explorer.exe" || command[1] != `shell:AppsFolder\OpenAI.Codex_abc!App` || command[2] != "--remote-debugging-port=9229" {
+		t.Fatalf("command shape mismatch: %#v", command)
 	}
 }
 

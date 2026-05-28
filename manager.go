@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -967,23 +968,21 @@ func codexLaunchPayload(appPath string) map[string]any {
 		return payload
 	}
 	if runtime.GOOS == "windows" {
+		if appUserModelID := packagedWindowsAppUserModelID(appPath); appUserModelID != "" {
+			payload["ready"] = true
+			payload["method"] = "packaged_activation"
+			payload["methodLabel"] = "MSIX 应用激活"
+			payload["appUserModelId"] = appUserModelID
+			payload["executable"] = buildCodexExecutable(appPath)
+			payload["message"] = "将通过 AppUserModelID 激活 Windows Store/MSIX 版。"
+			return payload
+		}
 		if executable := buildCodexExecutable(appPath); strings.TrimSpace(executable) != "" && fileExists(executable) {
 			payload["ready"] = true
 			payload["method"] = "executable"
 			payload["methodLabel"] = "可执行文件启动"
 			payload["executable"] = executable
 			payload["message"] = "将按 1.1.12 的方式直接启动 Codex.exe。"
-			if appUserModelID := packagedWindowsAppUserModelID(appPath); appUserModelID != "" {
-				payload["appUserModelId"] = appUserModelID
-			}
-			return payload
-		}
-		if appUserModelID := packagedWindowsAppUserModelID(appPath); appUserModelID != "" {
-			payload["ready"] = true
-			payload["method"] = "packaged_activation"
-			payload["methodLabel"] = "MSIX 应用激活"
-			payload["appUserModelId"] = appUserModelID
-			payload["message"] = "未直接读取到 Codex.exe，将通过 AppUserModelID 激活 Windows Store/MSIX 版。"
 			return payload
 		}
 	}
@@ -1331,32 +1330,114 @@ func listCCSProviders(path string) ([]ccsProviderImport, error) {
 	if !fileExists(path) {
 		return []ccsProviderImport{}, nil
 	}
-	query := `SELECT id, name, settings_config
-FROM providers
-WHERE app_type = 'codex'
-ORDER BY COALESCE(sort_index, 999999), created_at ASC, id ASC`
-	out, err := sqliteQuery(path, query)
+	idColumn := ccsFirstColumn(path, "id", "provider_id", "providerId")
+	nameColumn := ccsFirstColumn(path, "name", "display_name", "displayName")
+	configColumn := ccsFirstColumn(path, "settings_config", "settingsConfig", "config")
+	metaColumn := ccsFirstColumn(path, "meta")
+	if idColumn == "" || nameColumn == "" || configColumn == "" {
+		return nil, fmt.Errorf("CCSwitch providers 表缺少必要列 id/name/settings_config")
+	}
+	query := fmt.Sprintf("SELECT %s, %s, %s FROM providers", quoteSQLiteIdentifier(idColumn), quoteSQLiteIdentifier(nameColumn), quoteSQLiteIdentifier(configColumn))
+	if metaColumn != "" {
+		query = fmt.Sprintf("SELECT %s, %s, %s, %s FROM providers", quoteSQLiteIdentifier(idColumn), quoteSQLiteIdentifier(nameColumn), quoteSQLiteIdentifier(configColumn), quoteSQLiteIdentifier(metaColumn))
+	}
+	if sqliteHasColumn(path, "providers", "app_type") {
+		query += " WHERE lower(app_type) = 'codex'"
+	}
+	var orderParts []string
+	if sqliteHasColumn(path, "providers", "sort_index") {
+		orderParts = append(orderParts, "COALESCE(sort_index, 999999)")
+	}
+	if sqliteHasColumn(path, "providers", "created_at") {
+		orderParts = append(orderParts, "created_at ASC")
+	}
+	orderParts = append(orderParts, quoteSQLiteIdentifier(idColumn)+" ASC")
+	query += " ORDER BY " + strings.Join(orderParts, ", ")
+	db, err := openSQLite(path)
 	if err != nil {
 		return nil, err
 	}
+	defer db.Close()
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 	var providers []ccsProviderImport
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if strings.TrimSpace(line) == "" {
+	for rows.Next() {
+		var id, name, rawConfig, rawMeta sql.NullString
+		if metaColumn != "" {
+			if err := rows.Scan(&id, &name, &rawConfig, &rawMeta); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&id, &name, &rawConfig); err != nil {
+				return nil, err
+			}
+		}
+		config, ok := decodeCCSSettingsConfig(rawConfig.String)
+		if !ok {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 3)
-		if len(parts) != 3 {
-			continue
+		if meta, ok := decodeCCSSettingsConfig(rawMeta.String); ok {
+			config = attachCCSMeta(config, meta)
 		}
-		var config any
-		if json.Unmarshal([]byte(parts[2]), &config) != nil {
-			continue
-		}
-		if provider, ok := importFromCCSValue(parts[0], parts[1], config); ok {
+		if provider, ok := importFromCCSValue(id.String, name.String, config); ok {
 			providers = append(providers, provider)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return providers, nil
+}
+
+func ccsFirstColumn(path string, names ...string) string {
+	for _, name := range names {
+		if sqliteHasColumn(path, "providers", name) {
+			return name
+		}
+	}
+	return ""
+}
+
+func decodeCCSSettingsConfig(raw string) (any, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	var config any
+	if err := json.Unmarshal([]byte(raw), &config); err == nil {
+		return config, true
+	}
+	return map[string]any{"config": raw}, true
+}
+
+func attachCCSMeta(config any, meta any) any {
+	metaMap, ok := meta.(map[string]any)
+	if !ok || len(metaMap) == 0 {
+		return config
+	}
+	configMap, ok := config.(map[string]any)
+	if !ok {
+		return map[string]any{"config": config, "meta": metaMap}
+	}
+	merged := make(map[string]any, len(configMap)+2)
+	for key, value := range configMap {
+		merged[key] = value
+	}
+	merged["meta"] = metaMap
+	if _, ok := merged["apiFormat"]; !ok {
+		if apiFormat := valueAt(metaMap, "apiFormat"); apiFormat != nil {
+			merged["apiFormat"] = apiFormat
+		}
+	}
+	if _, ok := merged["api_format"]; !ok {
+		if apiFormat := valueAt(metaMap, "api_format"); apiFormat != nil {
+			merged["api_format"] = apiFormat
+		}
+	}
+	return merged
 }
 
 func importFromCCSValue(sourceID, name string, config any) (ccsProviderImport, bool) {
@@ -1369,6 +1450,8 @@ func importFromCCSValue(sourceID, name string, config any) (ccsProviderImport, b
 	configContents := extractCCSConfigContents(config)
 	if strings.TrimSpace(configContents) == "" {
 		configContents = buildCCSConfigToml(baseURL, apiKey, protocol)
+	} else {
+		configContents = ensureConfigBearerToken(configContents, apiKey)
 	}
 	authContents := extractCCSAuthContents(config)
 	if strings.TrimSpace(authContents) == "" {
@@ -1381,9 +1464,10 @@ func extractCCSBaseURL(config any) string {
 	return strings.TrimRight(firstString(
 		valueAt(config, "base_url"),
 		valueAt(config, "baseURL"),
+		valueAt(config, "apiEndpoint"),
 		valueAt(valueAt(config, "config"), "base_url"),
 		valueAt(valueAt(config, "config"), "baseURL"),
-		extractTomlString(stringFromAny(valueAt(config, "config")), "base_url"),
+		extractTomlString(extractCCSConfigText(config), "base_url"),
 	), "/")
 }
 
@@ -1391,16 +1475,23 @@ func extractCCSAPIKey(config any) string {
 	return firstString(
 		valuePointer(config, "env", "OPENAI_API_KEY"),
 		valuePointer(config, "auth", "OPENAI_API_KEY"),
+		extractCCSAuthJSONKey(config),
 		valueAt(config, "apiKey"),
 		valueAt(config, "api_key"),
 		valueAt(valueAt(config, "config"), "apiKey"),
 		valueAt(valueAt(config, "config"), "api_key"),
+		extractTomlString(extractCCSConfigText(config), "experimental_bearer_token"),
 	)
 }
 
 func extractCCSProtocol(config any) string {
-	apiFormat := firstString(valueAt(config, "api_format"), valueAt(config, "apiFormat"))
-	wireAPI := extractTomlString(stringFromAny(valueAt(config, "config")), "wire_api")
+	apiFormat := firstString(
+		valueAt(config, "api_format"),
+		valueAt(config, "apiFormat"),
+		valuePointer(config, "meta", "api_format"),
+		valuePointer(config, "meta", "apiFormat"),
+	)
+	wireAPI := extractTomlString(extractCCSConfigText(config), "wire_api")
 	if isChatProtocol(apiFormat) || isChatProtocol(wireAPI) || strings.HasSuffix(strings.ToLower(extractCCSBaseURL(config)), "/chat/completions") {
 		return "chatCompletions"
 	}
@@ -1408,7 +1499,7 @@ func extractCCSProtocol(config any) string {
 }
 
 func extractCCSConfigContents(config any) string {
-	return stringFromAny(valueAt(config, "config"))
+	return extractCCSConfigText(config)
 }
 
 func extractCCSAuthContents(config any) string {
@@ -1421,6 +1512,76 @@ func extractCCSAuthContents(config any) string {
 		return string(data) + "\n"
 	}
 	return stringFromAny(auth)
+}
+
+func extractCCSConfigText(config any) string {
+	if text := stringFromAny(valueAt(config, "config")); strings.TrimSpace(text) != "" {
+		return text
+	}
+	text, _ := config.(string)
+	return text
+}
+
+func extractCCSAuthJSONKey(config any) string {
+	authText := strings.TrimSpace(stringFromAny(valueAt(config, "auth")))
+	if authText == "" {
+		return ""
+	}
+	var auth map[string]any
+	if json.Unmarshal([]byte(authText), &auth) != nil {
+		return ""
+	}
+	return stringFromAny(auth["OPENAI_API_KEY"])
+}
+
+func ensureConfigBearerToken(configText, apiKey string) string {
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(extractTomlString(configText, "experimental_bearer_token")) != "" {
+		return configText
+	}
+	tokenLine := `experimental_bearer_token = "` + tomlEscape(apiKey) + `"`
+	lines := strings.Split(configText, "\n")
+	insertAt := -1
+	if provider := extractTomlString(configText, "model_provider"); provider != "" {
+		insertAt = ccsProviderTableInsertIndex(lines, provider)
+	}
+	if insertAt < 0 {
+		insertAt = ccsFirstModelProviderTableInsertIndex(lines)
+	}
+	if insertAt >= 0 {
+		lines = append(lines[:insertAt], append([]string{tokenLine}, lines[insertAt:]...)...)
+		return strings.Join(lines, "\n")
+	}
+	return strings.TrimRight(configText, "\r\n") + "\n" + tokenLine + "\n"
+}
+
+func ccsProviderTableInsertIndex(lines []string, provider string) int {
+	quoted := `[model_providers."` + strings.ReplaceAll(provider, `"`, `\"`) + `"]`
+	unquoted := "[model_providers." + provider + "]"
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == unquoted || trimmed == quoted {
+			return ccsTableEndIndex(lines, index)
+		}
+	}
+	return -1
+}
+
+func ccsFirstModelProviderTableInsertIndex(lines []string) int {
+	for index, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "[model_providers.") {
+			return ccsTableEndIndex(lines, index)
+		}
+	}
+	return -1
+}
+
+func ccsTableEndIndex(lines []string, tableStart int) int {
+	for index := tableStart + 1; index < len(lines); index++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[index]), "[") {
+			return index
+		}
+	}
+	return len(lines)
 }
 
 func buildCCSConfigToml(baseURL, apiKey, protocol string) string {
@@ -1451,7 +1612,7 @@ func relayProfileFromCCS(provider ccsProviderImport, existingIDs map[string]bool
 	existingIDs[id] = true
 	return relayProfile{
 		ID: id, Name: provider.Name, BaseURL: provider.BaseURL, APIKey: provider.APIKey, Protocol: provider.Protocol,
-		RelayMode: "pureApi", ConfigContents: provider.ConfigContents, AuthContents: provider.AuthContents,
+		RelayMode: "pureApi", ConfigContents: provider.ConfigContents, AuthContents: "",
 	}
 }
 

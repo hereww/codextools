@@ -1061,7 +1061,7 @@ export function App() {
 
     const currentSnapshot =
       current.relayMode === "pureApi"
-        ? { configContents: files.configContents, authContents: files.authContents }
+        ? { configContents: files.configContents, authContents: "" }
         : current.relayMode === "mixedApi"
           ? { configContents: files.configContents, authContents: "" }
           : { configContents: "", authContents: "" };
@@ -2314,7 +2314,7 @@ function RelayScreen({
   if (detailProfile) {
     return (
       <Panel fill>
-        <CardHead title="供应商详情" detail="上面修改参数，下面实时预览这个供应商自己的 config.toml / auth.json" />
+        <CardHead title="供应商详情" detail="上面修改参数，下面实时预览这个供应商自己的 config.toml；auth.json 保留当前登录" />
         <CardContent>
           <RelayProfileDetail
             profile={detailProfile}
@@ -2382,7 +2382,7 @@ function RelayScreen({
               type="button"
             >
               <strong>中转模式</strong>
-              <span>完整写入 config.toml / auth.json 使用中转。</span>
+              <span>写入 config.toml 使用中转，auth.json 保留当前登录。</span>
             </button>
           </div>
           {relay?.backupPath ? <div className="path-line compact-path">备份：{relay.backupPath}</div> : null}
@@ -2436,7 +2436,7 @@ function RelayScreen({
         </CardContent>
       </Panel>
       <Panel>
-        <CardHead title="配置文件" detail="进入某个供应商详情后可查看和保存 config.toml / auth.json" />
+        <CardHead title="配置文件" detail="进入某个供应商详情后可查看和保存 config.toml；auth.json 只保留当前登录状态" />
         <CardContent>
           <div className="path-line loose">Codex++ 设置：{settings?.settings_path ?? "未加载设置文件。"}</div>
           <div className="path-line loose">Codex config.toml：{relayFiles?.configPath ?? "-"}</div>
@@ -3220,7 +3220,7 @@ function RelayProfileDetail({
     }
     const fileBackfill =
       profile.relayMode === "pureApi"
-        ? { configContents: relayFiles.configContents, authContents: relayFiles.authContents }
+        ? { configContents: relayFiles.configContents, authContents: "" }
         : profile.relayMode === "mixedApi"
           ? { configContents: relayFiles.configContents, authContents: "" }
           : { configContents: "", authContents: "" };
@@ -3286,7 +3286,7 @@ function RelayProfileDetail({
     if (savedActiveFile && !saveFailed) {
       actions.showNotice("供应商保存", "保存成功，当前供应商配置已写入真实 config.toml。", "ok");
     } else if (saveFailed) {
-      actions.showNotice("供应商保存", "保存失败，请查看 config.toml / auth.json 的具体错误。", "failed");
+      actions.showNotice("供应商保存", "保存失败，请查看 config.toml 的具体错误。", "failed");
     } else if (!isActive) {
       actions.showNotice("供应商保存", "保存成功，切换到此供应商时会写入 config.toml。", "ok");
     }
@@ -3596,15 +3596,15 @@ function RelayFileEditors({
             <span>
               {profile.relayMode === "pureApi"
                 ? isActive
-                  ? "当前中转模式：打开时从 ~/.codex/auth.json 回填，保存时写回真实文件"
-                  : "中转模式切换到此供应商时写入 ~/.codex/auth.json"
-                : "官方账号快照已隐藏；此编辑框仅用于中转 API 模式。"}
+                  ? "当前中转模式会使用 config.toml 内的密钥；auth.json 保持现有登录状态"
+                  : "中转模式切换时不会覆盖 ~/.codex/auth.json"
+                : "官方账号快照已隐藏，auth.json 不在这里直接编辑。"}
             </span>
           </div>
         </div>
         <Textarea
           className="relay-file-textarea"
-          disabled={profile.relayMode !== "pureApi"}
+          disabled
           value={profile.authContents}
           onChange={(event) => onProfileChange({ ...profile, authContents: event.currentTarget.value })}
           spellCheck={false}
@@ -3961,7 +3961,7 @@ function inputToCodexExtraArgs(value: string) {
   return value === "" ? [] : value.split(/\r?\n/);
 }
 
-function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
+function normalizeRelayProfile(profile: RelayProfile, index = 0): RelayProfile {
   const relayMode =
     profile.relayMode === "pureApi"
       ? "pureApi"
@@ -3969,7 +3969,12 @@ function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
         ? "mixedApi"
         : normalizeRelayMode(profile.relayMode);
   const normalized: RelayProfile = {
+    ...defaultSettings.relayProfiles[0],
     ...profile,
+    id: profile.id || `relay-${index + 1}`,
+    name: profile.name || "",
+    baseUrl: profile.baseUrl || "",
+    apiKey: profile.apiKey || "",
     imageGenerationEnabled: Boolean(profile.imageGenerationEnabled),
     imageGenerationUseSeparateApi: Boolean(profile.imageGenerationUseSeparateApi),
     imageGenerationBaseUrl: profile.imageGenerationBaseUrl || "",
@@ -3984,7 +3989,7 @@ function normalizeRelayProfile(profile: RelayProfile): RelayProfile {
     configContents: profile.configContents || "",
     authContents: profile.authContents || "",
   };
-  if (!normalized.configContents.trim() || !normalized.authContents.trim()) {
+  if (!normalized.configContents.trim()) {
     return withGeneratedRelayFiles(normalized);
   }
   return normalized;
@@ -4073,7 +4078,7 @@ function relayProfileModeHelp(profile: RelayProfile): string {
     return "此供应商会使用它绑定的官方账号，并把请求混入当前 API Key；页面增强仍使用兼容模式。";
   }
   if (profile.relayMode === "pureApi") {
-    return "此供应商会按中转 API 模式完整写入 config.toml / auth.json，并启用完整页面增强。";
+    return "此供应商会按中转 API 模式写入 config.toml，并保留现有 auth.json 登录状态。";
   }
   return "";
 }
@@ -4092,9 +4097,9 @@ function relayProfileReadinessText(profile: RelayProfile, relay: RelayResult | n
     if (!hasApiFields) return "当前还没有填写混入 API 的 Base URL / Key。";
     return `官方账号已绑定：${officialBindingLabel(profile)}，会混入当前 API Key。`;
   }
-  const hasFiles = profile.configContents.trim() && profile.authContents.trim();
-  if (!hasFiles) return "当前中转还没有完整 config.toml / auth.json。";
-  return "中转 API 就绪：会直接写入此供应商的完整 config.toml / auth.json。";
+  const hasConfig = profile.configContents.trim();
+  if (!hasConfig) return "当前中转还没有完整 config.toml。";
+  return "中转 API 就绪：会写入此供应商的 config.toml，并保留现有 auth.json。";
 }
 
 function relayProfileGuideReady(profile: RelayProfile, connection?: InstallGuideConnectionStatus, relay?: RelayResult | null): boolean {
@@ -4142,7 +4147,7 @@ function prepareRelaySettingsForSwitch(settings: BackendSettings): BackendSettin
   return syncLegacyRelayFields({
     ...settings,
     relayProfiles: settings.relayProfiles.map((profile) => (
-      profile.id === activeId ? withGeneratedRelayFiles(profile) : profile
+      profile.id === activeId && !profile.configContents.trim() ? withGeneratedRelayFiles(profile) : profile
     )),
   });
 }
@@ -4180,7 +4185,7 @@ function withGeneratedRelayFiles(profile: RelayProfile): RelayProfile {
     ...profile,
     officialMixApiKey: false,
     configContents: buildRelayConfigToml(profile),
-    authContents: buildRelayAuthJson(profile),
+    authContents: "",
   };
 }
 
@@ -4227,10 +4232,6 @@ function buildRelayConfigToml(
   return lines.join("\n");
 }
 
-function buildRelayAuthJson(profile: Pick<RelayProfile, "apiKey">): string {
-  return `${JSON.stringify({ OPENAI_API_KEY: profile.apiKey.trim() }, null, 2)}\n`;
-}
-
 function relayProfileSwitchValidation(profile: RelayProfile): string | null {
   if (profile.relayMode === "official") {
     if (!profile.officialAuthContents.trim()) {
@@ -4252,17 +4253,6 @@ function relayProfileSwitchValidation(profile: RelayProfile): string | null {
     if (!profile.imageGenerationApiKey.trim()) return `供应商「${profile.name || profile.id}」缺少图片 Key，已停止切换。`;
   }
   return null;
-}
-
-function authJsonHasOpenAiApiKey(contents: string): boolean {
-  const trimmed = contents.trim();
-  if (!trimmed) return false;
-  try {
-    const value = JSON.parse(trimmed);
-    return !!value && typeof value === "object" && typeof value.OPENAI_API_KEY === "string" && value.OPENAI_API_KEY.trim().length > 0;
-  } catch {
-    return /"OPENAI_API_KEY"\s*:/.test(trimmed);
-  }
 }
 
 function tomlString(value: string): string {
