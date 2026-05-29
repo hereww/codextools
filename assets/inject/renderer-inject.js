@@ -486,7 +486,6 @@
       }
       .codex-plus-toggle,
       .codex-plus-action-button,
-      .codex-plus-issue-button,
       .codex-plus-backend-status {
         flex-shrink: 0;
         align-self: center;
@@ -541,13 +540,11 @@
       .${codexServiceTierBadgeClass}[data-tier="loading"] { color: #a1a1aa; }
       .${codexServiceTierBadgeClass}[data-tier="failed"] { border-color: rgba(248,113,113,.42); background: rgba(248,113,113,.12); color: #fca5a5; }
       .${codexServiceTierBadgeClass}[data-disabled="true"] { cursor: not-allowed; opacity: .78; }
-      .codex-plus-about { color: #a1a1aa; line-height: 1.5; }
       .codex-plus-tabs { display: flex; gap: 8px; padding: 0 20px 6px; flex: 0 0 auto; }
       .codex-plus-tab-button { border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: transparent; color: #d1d5db; font: 12px system-ui, sans-serif; padding: 5px 10px; }
       .codex-plus-tab-button[data-active="true"] { background: #10a37f; color: white; border-color: #10a37f; }
       .codex-plus-panel[hidden] { display: none; }
-      .codex-plus-action-button,
-      .codex-plus-issue-button { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
+      .codex-plus-action-button { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
       .codex-plus-backend-status { display: grid; gap: 4px; min-width: 132px; justify-items: end; }
       .codex-plus-backend-label { color: #a1a1aa; font-size: 12px; }
       .codex-plus-backend-label[data-status="ok"] { color: #34d399; }
@@ -1562,17 +1559,6 @@
               <div><div class="codex-plus-row-title">打开 DevTools</div><div class="codex-plus-row-description">打开当前 Codex 页面开发者工具，方便查看用户脚本报错。</div></div>
               <button type="button" class="codex-plus-action-button" data-codex-open-devtools="true">打开 DevTools</button>
             </div>
-            <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">关于 Codex++</div><div class="codex-plus-about">Codex++ 是通过外部 launcher 注入的增强菜单，不修改 Codex App 原始安装文件。<br>Build: <span data-codex-plus-build="true">${codexPlusBuild}</span><br>GitHub: <a href="https://github.com/BigPizzaV3/CodexPlusPlus" target="_blank" rel="noreferrer">https://github.com/BigPizzaV3/CodexPlusPlus</a><br>Discord: <a href="https://discord.gg/y96kX7A76v" target="_blank" rel="noreferrer">https://discord.gg/y96kX7A76v</a></div></div>
-            </div>
-            <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">Discord 社区</div><div class="codex-plus-row-description">加入 Discord 获取更新消息、反馈问题或交流使用体验。</div></div>
-              <button type="button" class="codex-plus-action-button" data-codex-plus-discord="true">打开 Discord</button>
-            </div>
-            <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">提出问题</div><div class="codex-plus-row-description">打开 GitHub Issues 反馈问题或建议。</div></div>
-              <button type="button" class="codex-plus-issue-button" data-codex-plus-issue="true">提出问题</button>
-            </div>
           </div>
           <div class="codex-plus-panel" data-codex-plus-panel="userScripts" hidden>
             <div class="codex-plus-row" data-codex-user-scripts-section="true">
@@ -1631,18 +1617,8 @@
         openManagerFromCodex();
         return;
       }
-      if (target?.closest("[data-codex-plus-discord]")) {
-        window.open("https://discord.gg/y96kX7A76v", "_blank");
-        return;
-      }
       if (target?.closest("[data-codex-backend-repair]")) {
         repairBackend();
-        return;
-      }
-      const issueButton = target?.closest("[data-codex-plus-issue]");
-      if (issueButton) {
-        const issueUrl = "https://github.com/BigPizzaV3/CodexPlusPlus/issues";
-        window.open(issueUrl, "_blank");
         return;
       }
       const userScriptsEnabled = target?.closest("[data-codex-user-scripts-enabled]");
