@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/windows"
-VERSION="${VERSION:-1.1.18}"
+VERSION="${VERSION:-1.1.19}"
 TARGET_ARCHES="${TARGET_ARCHES:-amd64 arm64}"
 ICON_PNG="$ROOT/assets/icons/codextools-1024.png"
 ICON_ICO="$BUILD/codextools.ico"
