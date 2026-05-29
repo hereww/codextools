@@ -6,7 +6,14 @@ DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/macos"
 VERSION="${VERSION:-1.1.18}"
 TARGET_ARCHES="${TARGET_ARCHES:-arm64 amd64}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
 export COPYFILE_DISABLE=1
+export MACOSX_DEPLOYMENT_TARGET
+
+macos_min_flag="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+export CGO_CFLAGS="${CGO_CFLAGS:-} ${macos_min_flag}"
+export CGO_CXXFLAGS="${CGO_CXXFLAGS:-} ${macos_min_flag}"
+export CGO_LDFLAGS="${CGO_LDFLAGS:-} ${macos_min_flag}"
 
 APP_NAME="Codex++ 管理工具"
 LAUNCHER_NAME="Codex++"
@@ -56,12 +63,45 @@ create_app() {
   <key>CFBundleIconFile</key>
   <string>codextools.icns</string>
   <key>LSMinimumSystemVersion</key>
-  <string>12.0</string>
+  <string>$MACOSX_DEPLOYMENT_TARGET</string>
   <key>LSUIElement</key>
   <$lsui/>
 </dict>
 </plist>
 PLIST
+}
+
+mach_o_minos() {
+  local binary="$1"
+  local minos=""
+
+  if command -v vtool >/dev/null 2>&1; then
+    minos="$(vtool -show-build "$binary" 2>/dev/null | awk '/minos/ { print $2; exit }')"
+  fi
+  if [[ -z "$minos" ]] && command -v otool >/dev/null 2>&1; then
+    minos="$(otool -l "$binary" | awk '
+      /LC_BUILD_VERSION/ { in_build = 1; in_min = 0; next }
+      in_build && /minos/ { print $2; exit }
+      /LC_VERSION_MIN_MACOSX/ { in_min = 1; in_build = 0; next }
+      in_min && /version/ { print $2; exit }
+    ')"
+  fi
+
+  printf '%s' "$minos"
+}
+
+verify_macos_deployment_target() {
+  local app_dir="$1"
+  local binary
+  while IFS= read -r binary; do
+    local minos
+    minos="$(mach_o_minos "$binary")"
+    if [[ "$minos" != "$MACOSX_DEPLOYMENT_TARGET" ]]; then
+      echo "error: $binary has macOS minos '$minos', expected '$MACOSX_DEPLOYMENT_TARGET'" >&2
+      echo "Set MACOSX_DEPLOYMENT_TARGET before building so macOS 15 and older supported targets can launch." >&2
+      return 1
+    fi
+  done < <(find "$app_dir/Contents/MacOS" -type f -perm -111 -print)
 }
 
 write_start_here() {
@@ -111,6 +151,8 @@ build_arch() {
 
   cp "$arch_build/codextools-launcher" "$app_dir/Contents/MacOS/codextools-launcher"
   cp "$arch_build/codextools" "$launcher_app_dir/Contents/MacOS/codextools"
+  verify_macos_deployment_target "$app_dir"
+  verify_macos_deployment_target "$launcher_app_dir"
   cp -R "$launcher_app_dir" "$package_dir/"
   cp -R "$app_dir" "$package_dir/"
   cp "$ROOT/README.md" "$package_dir/README.md"
