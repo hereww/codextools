@@ -771,6 +771,20 @@ export function App() {
     }
   };
 
+  const uninstallCodexTools = async () => {
+    if (!window.confirm("将启动 Windows 卸载程序，并先移除 Codex++ 入口和 watcher。继续？")) return;
+    const result = await run(() =>
+      call<CommandResult<Record<string, unknown>>>("uninstall_codextools", {
+        options: { removeOwnedData },
+      }),
+    );
+    if (result) {
+      showNotice("Windows 卸载", result.message, result.status);
+      await refreshOverview(true);
+      await refreshWatcher(true);
+    }
+  };
+
   const repairShortcuts = async () => {
     const result = await run(() => call<InstallResult>("repair_shortcuts"));
     if (result) {
@@ -1160,6 +1174,7 @@ export function App() {
       repairCodexApp,
       installEntrypoints,
       uninstallEntrypoints,
+      uninstallCodexTools,
       repairShortcuts,
       saveSettings,
       saveSettingsValue,
@@ -1402,6 +1417,7 @@ type Actions = {
   repairBackend: () => Promise<void>;
   installEntrypoints: () => Promise<void>;
   uninstallEntrypoints: () => Promise<void>;
+  uninstallCodexTools: () => Promise<void>;
   repairShortcuts: () => Promise<void>;
   repairCodexApp: () => Promise<void>;
   saveSettings: () => Promise<void>;
@@ -2690,6 +2706,12 @@ function MaintenanceScreen({
             <Button onClick={() => void actions.installEntrypoints()}>安装入口</Button>
             <Button variant="secondary" onClick={() => void actions.uninstallEntrypoints()}>卸载入口</Button>
             <Button variant="secondary" onClick={() => void actions.repairShortcuts()}>修复入口</Button>
+            {watcherPlatform === "windows" ? (
+              <Button variant="outline" onClick={() => void actions.uninstallCodexTools()}>
+                <Trash2 className="h-4 w-4" />
+                卸载 Codex++
+              </Button>
+            ) : null}
           </Toolbar>
         </CardContent>
       </Panel>

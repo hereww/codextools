@@ -49,6 +49,29 @@ func (s *server) uninstallEntrypoints(args map[string]any) commandResult {
 	return installActionResult("ok", "入口已卸载。")
 }
 
+func (s *server) uninstallCodexTools(args map[string]any) commandResult {
+	payload := codexToolsUninstallPayload()
+	if runtime.GOOS != "windows" {
+		return failed("Codex++ 卸载功能仅支持 Windows 安装包。", payload)
+	}
+	options := mapArg(args, "options")
+	removeOwnedData := boolArg(options, "removeOwnedData")
+	removeWindowsWatcherInstall()
+	cleanupWindowsCodexToolsEntrypoints()
+	if removeOwnedData {
+		_ = os.RemoveAll(stateDir())
+	}
+	uninstaller := windowsCodexToolsUninstallerPath()
+	payload = codexToolsUninstallPayload()
+	if uninstaller == "" {
+		return ok("未找到 Windows 安装器卸载程序；已移除入口和 watcher。若使用便携版，请手动删除当前 CodexTools 文件夹。", payload)
+	}
+	if err := startWindowsCodexToolsUninstaller(uninstaller); err != nil {
+		return failed("启动 Windows 卸载程序失败："+err.Error(), payload)
+	}
+	return ok("已启动 Windows 卸载程序，请按提示完成卸载。", payload)
+}
+
 func installActionResult(status, message string) commandResult {
 	return commandResult{
 		"status":              status,
@@ -90,6 +113,132 @@ func uninstallEntrypoints() error {
 		}
 	}
 	return firstErr
+}
+
+const windowsCodexToolsUninstallKey = `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexTools`
+
+func codexToolsUninstallPayload() map[string]any {
+	uninstaller := windowsCodexToolsUninstallerPath()
+	return map[string]any{
+		"platform":        runtime.GOOS,
+		"supported":       runtime.GOOS == "windows",
+		"uninstallerPath": uninstaller,
+		"installerFound":  uninstaller != "",
+	}
+}
+
+func cleanupWindowsCodexToolsEntrypoints() {
+	_ = uninstallEntrypoints()
+	if runtime.GOOS != "windows" {
+		return
+	}
+	if startMenu := windowsCodexToolsStartMenuDir(); startMenu != "" {
+		_ = os.RemoveAll(startMenu)
+	}
+}
+
+func removeWindowsWatcherInstall() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	_ = windowsRegDeleteCurrentUserValue(watcherRunKey, watcherRunName)
+	if shortcut := watcherStartupShortcutPath(); shortcut != "" {
+		_ = os.Remove(shortcut)
+	}
+}
+
+func windowsCodexToolsStartMenuDir() string {
+	appdata := os.Getenv("APPDATA")
+	if appdata == "" {
+		return ""
+	}
+	return filepath.Join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "CodexTools")
+}
+
+func windowsCodexToolsUninstallerPath() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	var candidates []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			candidates = append(candidates, path)
+		}
+	}
+	if executable, err := os.Executable(); err == nil {
+		add(filepath.Join(filepath.Dir(executable), "Uninstall.exe"))
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		add(filepath.Join(localAppData, "CodexTools", "Uninstall.exe"))
+	}
+	if installLocation := windowsRegistryString(windowsCodexToolsUninstallKey, "InstallLocation"); installLocation != "" {
+		add(filepath.Join(strings.Trim(installLocation, `"`), "Uninstall.exe"))
+	}
+	if uninstallString := windowsRegistryString(windowsCodexToolsUninstallKey, "UninstallString"); uninstallString != "" {
+		add(windowsExecutableFromCommand(uninstallString))
+	}
+	for _, candidate := range candidates {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func windowsRegistryString(key, name string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	cmd := exec.Command("reg", "query", key, "/v", name)
+	hideSubprocessWindow(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return parseWindowsRegQueryValue(string(output), name)
+}
+
+func parseWindowsRegQueryValue(output, name string) string {
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(strings.ToLower(trimmed), strings.ToLower(name)) {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "REG_SZ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
+}
+
+func windowsExecutableFromCommand(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		end := strings.Index(trimmed[1:], `"`)
+		if end >= 0 {
+			return trimmed[1 : end+1]
+		}
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func startWindowsCodexToolsUninstaller(path string) error {
+	if runtime.GOOS != "windows" {
+		return errors.New("Codex++ 卸载程序只支持 Windows")
+	}
+	cmd := exec.Command(path)
+	cmd.Dir = filepath.Dir(path)
+	return cmd.Start()
 }
 
 func writeMacOSAppBundle(manager bool) error {

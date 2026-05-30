@@ -200,6 +200,7 @@ const enUS: TranslationDictionary = {
   "安装入口": "Install Entrypoints",
   "卸载入口": "Uninstall Entrypoints",
   "修复入口": "Repair Entrypoints",
+  "卸载 Codex++": "Uninstall Codex++",
   "自动接管": "Auto Takeover",
   "安装 watcher": "Install Watcher",
   "移除 watcher": "Remove Watcher",

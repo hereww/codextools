@@ -269,6 +269,16 @@ func buildCodexExecutable(appPath string) string {
 func startCodexApp(appPath string, debugPort uint16, extraArgs []string) (codexLaunchHandle, error) {
 	command := buildCodexLaunchCommand(appPath, debugPort, extraArgs)
 	if runtime.GOOS == "windows" {
+		if len(command) > 0 && strings.TrimSpace(command[0]) != "" && fileExists(command[0]) {
+			handle, err := startCodexProcess(command)
+			if err == nil {
+				return handle, nil
+			}
+			if buildWindowsPackagedActivation(appPath, debugPort, extraArgs) == nil {
+				return nil, err
+			}
+			appendDiagnosticLog("launcher.windows_direct_start_failed", map[string]any{"command": safeCommandForLog(command), "error": err.Error()})
+		}
 		if activation := buildWindowsPackagedActivation(appPath, debugPort, extraArgs); activation != nil {
 			processID, activationErr := activateWindowsPackagedAppWithEnvironment(activation.appUserModelID, activation.arguments, codexLaunchEnvironment())
 			if activationErr == nil {
@@ -287,13 +297,6 @@ func startCodexApp(appPath string, debugPort uint16, extraArgs []string) (codexL
 				return handle, nil
 			}
 			return nil, fmt.Errorf("MSIX 激活 %s 失败：%v；explorer 兜底失败：%v；直接启动 %s 也失败：%w", activation.appUserModelID, activationErr, explorerErr, command[0], err)
-		}
-		if len(command) > 0 && strings.TrimSpace(command[0]) != "" && fileExists(command[0]) {
-			handle, err := startCodexProcess(command)
-			if err == nil {
-				return handle, nil
-			}
-			return nil, err
 		}
 	}
 	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {

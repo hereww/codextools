@@ -42,6 +42,24 @@ func TestBuildWatcherInstallPlanMatchesOriginalWindowsShape(t *testing.T) {
 	}
 }
 
+func TestParseWindowsUninstallRegistryValue(t *testing.T) {
+	output := `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexTools
+    DisplayName    REG_SZ    CodexTools
+    UninstallString    REG_SZ    "C:\Users\A\AppData\Local\CodexTools\Uninstall.exe"
+`
+	value := parseWindowsRegQueryValue(output, "UninstallString")
+	if value != `"C:\Users\A\AppData\Local\CodexTools\Uninstall.exe"` {
+		t.Fatalf("uninstall registry value mismatch: %q", value)
+	}
+}
+
+func TestWindowsExecutableFromCommandParsesQuotedPath(t *testing.T) {
+	command := `"C:\Users\A\AppData\Local\CodexTools\Uninstall.exe" /S`
+	if got := windowsExecutableFromCommand(command); got != `C:\Users\A\AppData\Local\CodexTools\Uninstall.exe` {
+		t.Fatalf("quoted command path mismatch: %q", got)
+	}
+}
+
 func TestNormalizeSettingsLanguage(t *testing.T) {
 	settings := normalizeSettings(backendSettings{Language: "ja"})
 
@@ -914,9 +932,9 @@ func TestBuildWindowsPackagedActivationArguments(t *testing.T) {
 	}
 }
 
-func TestCodexLaunchPayloadPrefersPackagedActivationWhenReadable(t *testing.T) {
+func TestCodexLaunchPayloadPrefersDirectExecutableWhenReadable(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		t.Skip("Windows packaged activation preference only applies on Windows")
+		t.Skip("Windows executable preference only applies on Windows")
 	}
 	appDir := filepath.Join(t.TempDir(), "OpenAI.Codex_26.519.11010.0_x64__2p2nqsd0c76g0", "app")
 	exe := filepath.Join(appDir, "Codex.exe")
@@ -924,8 +942,8 @@ func TestCodexLaunchPayloadPrefersPackagedActivationWhenReadable(t *testing.T) {
 
 	payload := codexLaunchPayload(appDir)
 
-	if got := stringFromAny(payload["method"]); got != "packaged_activation" {
-		t.Fatalf("readable MSIX app dir should prefer packaged activation: %#v", payload)
+	if got := stringFromAny(payload["method"]); got != "executable" {
+		t.Fatalf("readable MSIX app dir should prefer direct executable launch: %#v", payload)
 	}
 	if got := stringFromAny(payload["executable"]); got != exe {
 		t.Fatalf("executable mismatch: %q", got)

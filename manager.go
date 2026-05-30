@@ -195,6 +195,8 @@ func (s *server) dispatch(ctx context.Context, command string, args map[string]a
 		return s.installEntrypoints()
 	case "uninstall_entrypoints":
 		return s.uninstallEntrypoints(args)
+	case "uninstall_codextools":
+		return s.uninstallCodexTools(args)
 	case "repair_codex_app":
 		return s.repairCodexApp()
 	case "repair_backend":
@@ -972,6 +974,14 @@ func codexLaunchPayload(appPath string) map[string]any {
 		return payload
 	}
 	if runtime.GOOS == "windows" {
+		if executable := buildCodexExecutable(appPath); strings.TrimSpace(executable) != "" && fileExists(executable) {
+			payload["ready"] = true
+			payload["method"] = "executable"
+			payload["methodLabel"] = "可执行文件启动"
+			payload["executable"] = executable
+			payload["message"] = "将直接启动 Codex.exe 并附加调试端口参数。"
+			return payload
+		}
 		if appUserModelID := packagedWindowsAppUserModelID(appPath); appUserModelID != "" {
 			payload["ready"] = true
 			payload["method"] = "packaged_activation"
@@ -979,14 +989,6 @@ func codexLaunchPayload(appPath string) map[string]any {
 			payload["appUserModelId"] = appUserModelID
 			payload["executable"] = buildCodexExecutable(appPath)
 			payload["message"] = "将通过 AppUserModelID 激活 Windows Store/MSIX 版。"
-			return payload
-		}
-		if executable := buildCodexExecutable(appPath); strings.TrimSpace(executable) != "" && fileExists(executable) {
-			payload["ready"] = true
-			payload["method"] = "executable"
-			payload["methodLabel"] = "可执行文件启动"
-			payload["executable"] = executable
-			payload["message"] = "将按 1.1.12 的方式直接启动 Codex.exe。"
 			return payload
 		}
 	}
