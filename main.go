@@ -13,7 +13,7 @@ const (
 	managerName              = "Codex++ 管理工具"
 	silentBinary             = "codextools-launcher"
 	managerBinary            = "codextools"
-	version                  = "1.1.21"
+	version                  = "1.1.22"
 	stateDirName             = ".codex-session-delete"
 	settingsFileName         = "settings.json"
 	latestStatusFileName     = "latest-status.json"

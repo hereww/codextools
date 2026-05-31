@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist/releases"
 BUILD="$ROOT/dist/build/macos"
-VERSION="${VERSION:-1.1.21}"
+VERSION="${VERSION:-1.1.22}"
 TARGET_ARCHES="${TARGET_ARCHES:-arm64 amd64}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
 export COPYFILE_DISABLE=1
@@ -113,7 +113,8 @@ CodexTools macOS package (${label})
 1. Open "Codex++ 管理工具.app" to configure and manage Codex++.
 2. Open "Codex++.app" to launch Codex directly through the Codex++ launcher.
 3. The installer package installs both apps into /Applications.
-4. If macOS blocks the app because this build is not notarized, run:
+4. The macOS packages are unsigned community builds, including the pkg installer.
+   If macOS blocks the first launch, run:
 
    xattr -cr "/Applications/Codex++ 管理工具.app"
    xattr -cr "/Applications/Codex++.app"
@@ -182,7 +183,7 @@ build_arch() {
   <body>
     <h1>CodexTools ${VERSION}</h1>
     <p>This installer places <strong>Codex++ 管理工具.app</strong> and <strong>Codex++.app</strong> in <code>/Applications</code>.</p>
-    <p>If macOS blocks the apps because this build is not notarized, open Terminal and run:</p>
+    <p>The macOS packages are unsigned community builds, including this pkg installer. If macOS blocks the first launch, open Terminal and run:</p>
     <pre>xattr -cr "/Applications/Codex++ 管理工具.app"
 xattr -cr "/Applications/Codex++.app"</pre>
     <p>You can also right-click each app and choose <strong>Open</strong>.</p>

@@ -170,20 +170,20 @@
             <h2>macOS</h2>
             <p>Installer packages and portable app bundles for Apple Silicon and Intel Macs.</p>
             <div class="download-list">
-              <a href="./releases/CodexTools-1.1.21-macos-arm64.pkg">Download Apple Silicon installer <span>M1/M2/M3/M4</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-x64.pkg">Download Intel installer <span>x64</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-arm64.zip">Portable Apple Silicon zip <span>secondary</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-x64.zip">Portable Intel zip <span>secondary</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-arm64.pkg">Download Apple Silicon installer <span>M1/M2/M3/M4</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-x64.pkg">Download Intel installer <span>x64</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-arm64.zip">Portable Apple Silicon zip <span>secondary</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-x64.zip">Portable Intel zip <span>secondary</span></a>
             </div>
           </div>
           <div data-lang="zh">
             <h2>macOS</h2>
             <p>同时提供 Apple Silicon 与 Intel Mac 的安装包和便携 app 压缩包。</p>
             <div class="download-list">
-              <a href="./releases/CodexTools-1.1.21-macos-arm64.pkg">下载 Apple Silicon 安装包 <span>M1/M2/M3/M4</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-x64.pkg">下载 Intel 安装包 <span>x64</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-arm64.zip">Apple Silicon 便携 zip <span>备用</span></a>
-              <a href="./releases/CodexTools-1.1.21-macos-x64.zip">Intel 便携 zip <span>备用</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-arm64.pkg">下载 Apple Silicon 安装包 <span>M1/M2/M3/M4</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-x64.pkg">下载 Intel 安装包 <span>x64</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-arm64.zip">Apple Silicon 便携 zip <span>备用</span></a>
+              <a href="./releases/CodexTools-1.1.22-macos-x64.zip">Intel 便携 zip <span>备用</span></a>
             </div>
           </div>
         </section>
@@ -193,20 +193,20 @@
             <h2>Windows</h2>
             <p>Setup installers for traditional PCs and Windows on ARM, plus portable zip builds.</p>
             <div class="download-list">
-              <a href="./releases/CodexTools-1.1.21-windows-x64-setup.exe">Download Windows PC installer <span>Intel/AMD x64</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-arm64-setup.exe">Download Windows ARM installer <span>ARM64</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-x64.zip">Portable Windows PC zip <span>secondary</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-arm64.zip">Portable Windows ARM zip <span>secondary</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-x64-setup.exe">Download Windows PC installer <span>Intel/AMD x64</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-arm64-setup.exe">Download Windows ARM installer <span>ARM64</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-x64.zip">Portable Windows PC zip <span>secondary</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-arm64.zip">Portable Windows ARM zip <span>secondary</span></a>
             </div>
           </div>
           <div data-lang="zh">
             <h2>Windows</h2>
             <p>同时提供传统电脑和 Windows ARM 设备的安装包，并保留便携 zip。</p>
             <div class="download-list">
-              <a href="./releases/CodexTools-1.1.21-windows-x64-setup.exe">下载 Windows PC 安装包 <span>Intel/AMD x64</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-arm64-setup.exe">下载 Windows ARM 安装包 <span>ARM64</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-x64.zip">Windows PC 便携 zip <span>备用</span></a>
-              <a href="./releases/CodexTools-1.1.21-windows-arm64.zip">Windows ARM 便携 zip <span>备用</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-x64-setup.exe">下载 Windows PC 安装包 <span>Intel/AMD x64</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-arm64-setup.exe">下载 Windows ARM 安装包 <span>ARM64</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-x64.zip">Windows PC 便携 zip <span>备用</span></a>
+              <a href="./releases/CodexTools-1.1.22-windows-arm64.zip">Windows ARM 便携 zip <span>备用</span></a>
             </div>
           </div>
         </section>
@@ -214,18 +214,33 @@
 
       <section class="release-note">
         <div data-lang="en" class="active">
-          <strong>Version 1.1.21</strong>
+          <strong>Version 1.1.22</strong>
           <ul>
-            <li>Windows builds now include a Codex++ uninstall flow that removes entrypoints, watcher startup state, and then launches the installer uninstaller when available.</li>
-            <li>Windows Codex launch checks now prefer a readable Codex.exe before falling back to packaged MSIX activation.</li>
+            <li>Windows watcher installation now uses the current-user Run registry entry only and cleans up older Startup shortcut entries to avoid duplicate launches.</li>
+            <li>The launcher now guards against duplicate Windows instances and can attach to or restart an already running Codex debug session more reliably.</li>
           </ul>
         </div>
         <div data-lang="zh">
-          <strong>版本 1.1.21</strong>
+          <strong>版本 1.1.22</strong>
           <ul>
-            <li>Windows 版本新增 Codex++ 卸载流程：先移除入口和 watcher 启动状态，再在可用时启动安装器卸载程序。</li>
-            <li>Windows 上的 Codex 启动检测现在优先使用可读的 Codex.exe，再回退到 MSIX 应用激活。</li>
+            <li>Windows watcher 安装现在只使用当前用户 Run 注册表项，并会清理旧版启动目录快捷方式，避免重复启动。</li>
+            <li>启动器现在会防止 Windows 上重复实例，并能更可靠地附着或重启已有的 Codex 调试会话。</li>
           </ul>
+        </div>
+      </section>
+
+      <section class="note">
+        <div data-lang="en" class="active">
+          <strong>macOS first launch note</strong>
+          <p>The macOS packages are unsigned community builds, including the pkg installers. If macOS blocks the first launch, run:</p>
+          <pre><code>xattr -cr "/Applications/Codex++ 管理工具.app"
+xattr -cr "/Applications/Codex++.app"</code></pre>
+        </div>
+        <div data-lang="zh">
+          <strong>macOS 首次启动提醒</strong>
+          <p>macOS 包是未签名的社区构建，pkg 安装包也一样。如果 macOS 阻止首次启动，请执行：</p>
+          <pre><code>xattr -cr "/Applications/Codex++ 管理工具.app"
+xattr -cr "/Applications/Codex++.app"</code></pre>
         </div>
       </section>
 
@@ -234,7 +249,7 @@
           <strong>Notes</strong>
           <ul>
             <li>macOS installer packages install `Codex++ 管理工具.app` and `Codex++.app` into `/Applications`.</li>
-            <li>If macOS blocks the unsigned apps, run <code>xattr -cr "/Applications/Codex++ 管理工具.app"</code> and <code>xattr -cr "/Applications/Codex++.app"</code>.</li>
+            <li>The macOS pkg installers and zip app bundles are unsigned community builds; use the first launch note above if Gatekeeper blocks them.</li>
             <li>Windows x64 is for traditional Intel/AMD PCs. Windows arm64 is for Windows on ARM devices.</li>
             <li>The manager still expects a local Codex installation and keeps the current Go refactor feature scope.</li>
           </ul>
@@ -243,7 +258,7 @@
           <strong>说明</strong>
           <ul>
             <li>macOS 安装包会把 `Codex++ 管理工具.app` 和 `Codex++.app` 安装到 `/Applications`。</li>
-            <li>如果 macOS 因未签名阻止启动，请执行 <code>xattr -cr "/Applications/Codex++ 管理工具.app"</code> 和 <code>xattr -cr "/Applications/Codex++.app"</code>。</li>
+            <li>macOS pkg 安装包和 zip app 包都是未签名社区构建；如果被 Gatekeeper 阻止，请使用上方首次启动提醒。</li>
             <li>Windows x64 适合传统 Intel/AMD 电脑；Windows arm64 适合 Windows ARM 设备。</li>
             <li>管理器仍然需要本地已有 Codex 安装，并保持当前 Go 重构版的功能范围。</li>
           </ul>
