@@ -401,16 +401,22 @@ func writeDesktopEntry(manager bool) error {
 func watcherPayload() map[string]any {
 	flag := filepath.Join(stateDir(), "watcher.disabled")
 	install := watcherInstallState()
+	runValueInstalled := false
+	if runtime.GOOS == "windows" {
+		runValueInstalled = strings.TrimSpace(windowsRegistryString(watcherRunKey, watcherRunName)) != ""
+	}
 	return map[string]any{
-		"enabled":            !fileExists(flag),
-		"disabled_flag":      flag,
-		"platform":           runtime.GOOS,
-		"install_supported":  runtime.GOOS == "windows",
-		"run_value_name":     watcherRunName,
-		"run_value":          install.RunValue,
-		"startup_shortcut":   install.ShortcutPath,
-		"launcher_path":      install.LauncherPath,
-		"launcher_arguments": install.Arguments,
+		"enabled":                    !fileExists(flag),
+		"disabled_flag":              flag,
+		"platform":                   runtime.GOOS,
+		"install_supported":          runtime.GOOS == "windows",
+		"run_value_name":             watcherRunName,
+		"run_value":                  install.RunValue,
+		"run_value_installed":        runValueInstalled,
+		"startup_shortcut":           install.ShortcutPath,
+		"startup_shortcut_installed": install.ShortcutPath != "" && fileExists(install.ShortcutPath),
+		"launcher_path":              install.LauncherPath,
+		"launcher_arguments":         install.Arguments,
 	}
 }
 
@@ -446,17 +452,14 @@ func (s *server) installWatcher() commandResult {
 		return failed("watcher 安装仅支持 Windows；macOS 只能手动从 Codex++ 入口启动并用启用/禁用控制本地标志。", payload)
 	}
 	install := watcherInstallState()
-	if install.ShortcutPath == "" {
-		return failed("安装 watcher 失败：无法定位 Windows 启动目录。", watcherPayload())
-	}
 	if !fileExists(install.LauncherPath) {
 		return failed("安装 watcher 失败：未找到静默启动器 "+install.LauncherPath, watcherPayload())
 	}
 	if err := windowsRegAddCurrentUserString(watcherRunKey, watcherRunName, install.RunValue); err != nil {
 		return failed("安装 watcher 失败："+err.Error(), watcherPayload())
 	}
-	if err := createWindowsShortcutWithArgs(install.ShortcutPath, install.LauncherPath, install.Arguments, "Codex++ watcher"); err != nil {
-		return failed("安装 watcher 失败："+err.Error(), watcherPayload())
+	if install.ShortcutPath != "" {
+		_ = os.Remove(install.ShortcutPath)
 	}
 	spawnWatcherLauncher(install.LauncherPath, defaultWatcherDebugPort)
 	return ok("watcher 已安装。", watcherPayload())

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func shouldRunLauncher(args []string) bool {
@@ -53,6 +55,61 @@ func runLauncher(args []string) error {
 		writeLaunchFailureStatus("启动 Codex 失败："+err.Error(), debugPort, helperPort, nil)
 		appendDiagnosticLog("launcher.codex_app_missing", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "error": err.Error()})
 		return err
+	}
+	singleInstanceLock, acquired, err := acquireLauncherSingleInstanceLock(debugPort)
+	if err != nil {
+		appendDiagnosticLog("launcher.single_instance_lock_failed", map[string]any{"debug_port": debugPort, "error": err.Error()})
+	} else if !acquired {
+		if !options.restart {
+			status := launchStatus{
+				Status:      "running",
+				Message:     "Codex++ launcher 已在运行，已跳过本次重复启动。",
+				StartedAtMS: uint64(time.Now().UnixMilli()),
+				DebugPort:   &debugPort,
+				HelperPort:  &helperPort,
+				CodexApp:    &appPath,
+			}
+			_ = atomicWriteJSON(latestStatusPath(), status)
+			appendDiagnosticLog("launcher.single_instance_skipped", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
+			return nil
+		}
+		appendDiagnosticLog("launcher.restart_existing_codex", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
+		if err := requestCodexShutdownViaCDP(debugPort, 10*time.Second); err != nil {
+			writeLaunchFailureStatus("重启 Codex 失败："+err.Error(), debugPort, helperPort, &appPath)
+			appendDiagnosticLog("launcher.restart_existing_codex_failed", map[string]any{"debug_port": debugPort, "error": err.Error()})
+			return err
+		}
+		if helperNeeded(settings) {
+			waitForTCPPortFree(helperPort, 5*time.Second)
+		}
+		if activeRelayProfile(settings).needsLocalRelayProxy() {
+			waitForTCPPortFree(localRelayProxyPort, 5*time.Second)
+		}
+		singleInstanceLock, acquired, err = acquireLauncherSingleInstanceLock(debugPort)
+		if err != nil {
+			appendDiagnosticLog("launcher.single_instance_relock_failed", map[string]any{"debug_port": debugPort, "error": err.Error()})
+		} else if !acquired {
+			writeLaunchFailureStatus("重启 Codex 失败：旧启动器尚未退出，请关闭 Codex 后重试。", debugPort, helperPort, &appPath)
+			appendDiagnosticLog("launcher.single_instance_restart_skipped", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
+			return nil
+		}
+	}
+	if singleInstanceLock != nil {
+		defer singleInstanceLock.release()
+	}
+	if runtime.GOOS == "windows" && options.restart && cdpTargetsAvailable(debugPort, 800*time.Millisecond) {
+		appendDiagnosticLog("launcher.restart_running_codex", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
+		if err := requestCodexShutdownViaCDP(debugPort, 10*time.Second); err != nil {
+			writeLaunchFailureStatus("重启 Codex 失败："+err.Error(), debugPort, helperPort, &appPath)
+			appendDiagnosticLog("launcher.restart_running_codex_failed", map[string]any{"debug_port": debugPort, "error": err.Error()})
+			return err
+		}
+		if helperNeeded(settings) {
+			waitForTCPPortFree(helperPort, 5*time.Second)
+		}
+		if activeRelayProfile(settings).needsLocalRelayProxy() {
+			waitForTCPPortFree(localRelayProxyPort, 5*time.Second)
+		}
 	}
 	runtimeState := &launcherRuntime{settings: settings, debugPort: debugPort}
 	if shouldQuitRunningCodexBeforeLaunch(appPath, debugPort, options.restart) {
@@ -128,19 +185,26 @@ func runLauncher(args []string) error {
 	_ = atomicWriteJSON(latestStatusPath(), status)
 	appendDiagnosticLog("launcher.starting", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath, "enhancements": settings.Enhancements})
 
-	launch, err := startCodexApp(appPath, debugPort, settings.CodexExtraArgs)
-	if err != nil {
-		failure := launchStatus{
-			Status:      "failed",
-			Message:     "启动 Codex 失败：" + err.Error(),
-			StartedAtMS: uint64(time.Now().UnixMilli()),
-			DebugPort:   &debugPort,
-			HelperPort:  &helperPort,
-			CodexApp:    &appPath,
+	attachExisting := shouldAttachToRunningCodex(debugPort, options.restart)
+	launch := codexLaunchHandle(&existingCodexLaunch{debugPort: debugPort})
+	if !attachExisting {
+		var err error
+		launch, err = startCodexApp(appPath, debugPort, settings.CodexExtraArgs)
+		if err != nil {
+			failure := launchStatus{
+				Status:      "failed",
+				Message:     "启动 Codex 失败：" + err.Error(),
+				StartedAtMS: uint64(time.Now().UnixMilli()),
+				DebugPort:   &debugPort,
+				HelperPort:  &helperPort,
+				CodexApp:    &appPath,
+			}
+			_ = atomicWriteJSON(latestStatusPath(), failure)
+			appendDiagnosticLog("launcher.codex_start_failed", map[string]any{"error": err.Error(), "codex_app": appPath})
+			return err
 		}
-		_ = atomicWriteJSON(latestStatusPath(), failure)
-		appendDiagnosticLog("launcher.codex_start_failed", map[string]any{"error": err.Error(), "codex_app": appPath})
-		return err
+	} else {
+		appendDiagnosticLog("launcher.attach_existing_codex", map[string]any{"debug_port": debugPort, "helper_port": helperPort, "codex_app": appPath})
 	}
 	ready := launchStatus{
 		Status:      "running",
@@ -149,6 +213,9 @@ func runLauncher(args []string) error {
 		DebugPort:   &debugPort,
 		HelperPort:  &helperPort,
 		CodexApp:    &appPath,
+	}
+	if attachExisting {
+		ready.Message = "Codex++ launcher 已附着到现有 Codex 进程。"
 	}
 	if settings.Enhancements {
 		if err := runtimeState.retryInjection(helperPort); err != nil {
@@ -402,6 +469,46 @@ func shouldQuitRunningCodexBeforeLaunch(appPath string, debugPort uint16, restar
 	return true
 }
 
+func shouldAttachToRunningCodex(debugPort uint16, restart bool) bool {
+	return runtime.GOOS == "windows" && !restart && cdpTargetsAvailable(debugPort, 1200*time.Millisecond)
+}
+
+func cdpTargetsAvailable(debugPort uint16, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	targets, err := listCDPTargets(ctx, debugPort)
+	return err == nil && len(targets) > 0
+}
+
+func requestCodexShutdownViaCDP(debugPort uint16, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	targets, err := listCDPTargets(ctx, debugPort)
+	if err != nil {
+		return fmt.Errorf("无法连接现有 Codex 调试端口 %d：%w", debugPort, err)
+	}
+	target, err := pickCDPPageTarget(targets)
+	if err != nil {
+		return err
+	}
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]any{"id": 1, "method": "Browser.close", "params": map[string]any{}}); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !tcpPortAccepting(debugPort) {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("等待 Codex 调试端口 %d 关闭超时", debugPort)
+}
+
 func waitForTCPPortFree(port uint16, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	address := fmt.Sprintf("127.0.0.1:%d", port)
@@ -514,6 +621,28 @@ func reapLauncherChild(launch codexLaunchHandle, appPath string, debugPort, help
 
 func helperNeeded(settings backendSettings) bool {
 	return settings.Enhancements || activeRelayProfile(settings).Protocol == "chatCompletions" || activeRelayProfile(settings).needsLocalRelayProxy()
+}
+
+type existingCodexLaunch struct {
+	debugPort uint16
+}
+
+func (launch *existingCodexLaunch) wait() error {
+	for tcpPortAccepting(launch.debugPort) {
+		time.Sleep(time.Second)
+	}
+	return nil
+}
+
+func (launch *existingCodexLaunch) terminate() error {
+	return nil
+}
+
+func (launch *existingCodexLaunch) logPayload() map[string]any {
+	return map[string]any{
+		"type":       "existing_cdp",
+		"debug_port": launch.debugPort,
+	}
 }
 
 type codexLaunchHandle interface {

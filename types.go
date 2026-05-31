@@ -233,6 +233,10 @@ type launchRequest struct {
 	restart    bool
 }
 
+type launcherSingleInstanceLock interface {
+	release()
+}
+
 type relayRouteDecision struct {
 	useImageAPI       bool
 	body              []byte

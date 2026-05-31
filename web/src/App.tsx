@@ -333,7 +333,9 @@ type WatcherResult = CommandResult<{
   install_supported?: boolean;
   run_value_name?: string;
   run_value?: string;
+  run_value_installed?: boolean;
   startup_shortcut?: string;
+  startup_shortcut_installed?: boolean;
   launcher_path?: string;
   launcher_arguments?: string;
 }>;
@@ -2668,9 +2670,9 @@ function MaintenanceScreen({
   const savedCodexAppPath = settings?.settings.codexAppPath ?? "";
   const watcherPlatform = watcher?.platform ?? "unknown";
   const watcherInstallSupported = watcher?.install_supported === true;
-  const watcherInstallStatus = watcherInstallSupported ? (watcher?.startup_shortcut ? "available" : "not_checked") : "unsupported";
+  const watcherInstallStatus = watcherInstallSupported ? (watcher?.run_value_installed ? "installed" : "not_checked") : "unsupported";
   const watcherDetail = watcherInstallSupported
-    ? "Windows 会写入当前用户 Run 注册表项和启动目录快捷方式，保持 Codex++ 静默接管。"
+    ? "Windows 使用当前用户 Run 注册表项保持 Codex++ 静默接管，并会清理旧版本启动目录快捷方式以避免重复启动。"
     : "当前平台不支持安装常驻 watcher；macOS 请通过 Codex++ 入口启动，启用/禁用只切换本地 watcher.disabled 标志。";
   return (
     <>
@@ -2724,8 +2726,8 @@ function MaintenanceScreen({
           </div>
           {watcherInstallSupported ? (
             <div className="status-table compact-path">
-              <StatusRow title="Run 项名称" status="not_checked" path={watcher?.run_value_name || "CodexPlusPlusWatcher"} />
-              <StatusRow title="启动快捷方式" status={watcher?.startup_shortcut ? "found" : "not_checked"} path={watcher?.startup_shortcut || null} />
+              <StatusRow title="Run 项名称" status={watcher?.run_value_installed ? "installed" : "not_checked"} path={watcher?.run_value_name || "CodexPlusPlusWatcher"} />
+              <StatusRow title="旧启动快捷方式" status={watcher?.startup_shortcut_installed ? "found" : "ok"} path={watcher?.startup_shortcut || null} />
               <StatusRow title="启动器命令" status={watcher?.launcher_path ? "found" : "not_checked"} path={`${watcher?.launcher_path || ""} ${watcher?.launcher_arguments || ""}`.trim() || null} />
             </div>
           ) : null}
