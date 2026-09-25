@@ -214,25 +214,25 @@
 
       <section class="release-note">
         <div data-lang="en" class="active">
-          <strong>Version 1.2.9</strong>
+          <strong>Version 1.2.10</strong>
           <ul>
-            <li>Improves Remote Control routing in mixed relay mode, including local proxy startup, session provider normalization, targeted recovery, duplicate-request suppression, and native RPC passthrough.</li>
-            <li>Adds Responses proxy compatibility for zstd-compressed HTTP request bodies and returns a clear HTTP upgrade response for unsupported Responses WebSocket requests.</li>
-            <li>Hardens diagnostics with bounded log rotation, memory-safe tail reads, runtime diagnostics, quieter high-frequency tracing, and renderer-side failure deduplication.</li>
-            <li>Improves bridge/helper fallback behavior, runtime settings refresh, model and plugin request patch retries, and conversation sorting performance.</li>
-            <li>Fixes provider-sync metadata handling for large transcripts and limits rollout metadata reads to avoid excessive disk and memory usage.</li>
-            <li>Improves Windows upgrades by stopping the running ChatGPT desktop process before replacing installed files, with expanded regression coverage.</li>
+            <li>Adds configurable proxy routing by request purpose, covering relay traffic, Remote Control, official sign-in, realtime voice, model catalog, audio, VLM, and Stepwise without changing system proxy settings.</li>
+            <li>Adds VLM profile testing with image preview, bounded uploads and responses, proxy support, and API-key redaction.</li>
+            <li>Adds GPT-6 Astra model-catalog compatibility and per-model context-window and automatic-compaction settings.</li>
+            <li>Improves relay status and profile configuration while preserving provider-specific proxy behavior and direct-connection bypass rules.</li>
+            <li>Hardens TOML configuration merging to preserve unrelated settings, and improves provider repair and synchronization safety.</li>
+            <li>Adds regression coverage for proxy routing, relay modes, model metadata, TOML semantics, and vision-model testing.</li>
           </ul>
         </div>
         <div data-lang="zh">
-          <strong>版本 1.2.9</strong>
+          <strong>版本 1.2.10</strong>
           <ul>
-            <li>改进混合中转模式下的 Remote Control 路由，包括本地代理启动、会话 provider 规范化、定向恢复、重复请求抑制和原生 RPC 透传。</li>
-            <li>为 Responses 中转增加 zstd 压缩 HTTP 请求体兼容，并对不支持的 Responses WebSocket 请求返回明确的 HTTP 升级提示。</li>
-            <li>强化诊断能力：增加有上限的日志轮转、低内存尾部读取、运行时诊断、高频日志降噪和注入层错误去重。</li>
-            <li>改进 bridge/helper 回退、运行时设置刷新、模型和插件请求补丁重试，以及会话列表排序性能。</li>
-            <li>修复 provider sync 对大体积 transcript 的元数据处理，并限制 rollout 元数据读取，降低不必要的磁盘和内存占用。</li>
-            <li>改进 Windows 更新流程，在替换已安装文件前关闭正在运行的 ChatGPT 桌面进程，并补充回归测试。</li>
+            <li>新增按请求用途配置代理的能力，覆盖中转、Remote Control、官方登录、Realtime 语音、模型目录、音频、VLM 和 Stepwise，且不修改系统代理。</li>
+            <li>新增 VLM 供应商图片测试，支持图片预览、上传与响应大小限制、代理及 API Key 脱敏。</li>
+            <li>增加 GPT-6 Astra 模型目录兼容，并支持逐模型设置上下文窗口和自动压缩阈值。</li>
+            <li>改进中转状态和供应商配置，同时保留供应商专属代理优先级及直连绕过规则。</li>
+            <li>强化 TOML 配置合并，在修复和同步供应商配置时尽量保留无关设置。</li>
+            <li>补充代理路由、中转模式、模型元数据、TOML 语义和视觉模型测试的回归覆盖。</li>
           </ul>
         </div>
       </section>
@@ -264,8 +264,8 @@ xattr -cr "/Applications/Codex++.app"</code></pre>
             <li>The macOS pkg installers and zip app bundles are unsigned community builds; use the first launch note above if Gatekeeper blocks them.</li>
             <li>Windows x64 is for traditional Intel/AMD PCs. Windows arm64 is for Windows on ARM devices.</li>
             <li>Windows builds include setup installers for offline installation plus portable zip builds for manual deployment.</li>
-            <li>HTTP proxy settings are configured per relay profile and remain available for relay tests, model fetching, local relay forwarding, and aggregate failover candidates.</li>
-            <li>Release 1.2.9 is a maintenance update after 1.2.8, focused on Remote Control compatibility, proxy request handling, diagnostics, performance, and Windows upgrade reliability.</li>
+            <li>Proxy controls can be enabled independently for supported request purposes; ChatGPT's native application proxy is scoped to the app and does not change system WinHTTP or proxy settings.</li>
+            <li>Release 1.2.10 expands proxy routing, model configuration, TOML repair safety, and VLM testing after 1.2.9.</li>
           </ul>
         </div>
         <div data-lang="zh">
@@ -275,8 +275,8 @@ xattr -cr "/Applications/Codex++.app"</code></pre>
             <li>macOS pkg 安装包和 zip app 包都是未签名社区构建；如果被 Gatekeeper 阻止，请使用上方首次启动提醒。</li>
             <li>Windows x64 适合传统 Intel/AMD 电脑；Windows arm64 适合 Windows ARM 设备。</li>
             <li>Windows 构建同时提供适合离线安装的 setup 安装器，以及适合手动部署的便携 zip。</li>
-            <li>HTTP 代理继续按中转供应商独立配置，并用于中转测试、模型拉取、本地中转转发和聚合故障切换候选项。</li>
-            <li>1.2.9 是继 1.2.8 后的维护版本，重点修复 Remote Control 兼容性、中转请求处理、诊断性能以及 Windows 更新可靠性。</li>
+            <li>支持按用途独立启用代理；ChatGPT 原生应用代理仅作用于应用，不会修改系统 WinHTTP 或系统代理设置。</li>
+            <li>1.2.10 在 1.2.9 基础上扩展代理路由、模型配置、TOML 修复安全性和 VLM 测试能力。</li>
           </ul>
         </div>
       </section>

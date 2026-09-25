@@ -13,7 +13,7 @@ const (
 	managerName              = "ChatGPT Codex 管理工具"
 	silentBinary             = "codextools-launcher"
 	managerBinary            = "codextools"
-	version                  = "1.2.9"
+	version                  = "1.2.10"
 	stateDirName             = ".codex-session-delete"
 	settingsFileName         = "settings.json"
 	latestStatusFileName     = "latest-status.json"
