@@ -128,6 +128,7 @@ type relayProfile struct {
 	ModelInsertMode               string                `json:"modelInsertMode"`
 	ModelList                     string                `json:"modelList"`
 	ModelWindows                  string                `json:"modelWindows"`
+	ModelAutoCompact              string                `json:"modelAutoCompact"`
 	ModelVLM                      string                `json:"modelVlm"`
 	VLMAPIKey                     string                `json:"vlmApiKey"`
 	VLMModel                      string                `json:"vlmModel"`

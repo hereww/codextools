@@ -236,6 +236,8 @@ func (s *server) dispatch(ctx context.Context, command string, args map[string]a
 		return s.applySessionIndexCleanup(args)
 	case "test_stepwise_settings":
 		return s.testStepwiseSettings(args)
+	case "test_vlm_profile":
+		return s.testVLMProfile(ctx, args)
 	case "repair_conversation_history":
 		return s.repairConversationHistory()
 	case "conversation_history_repair_status":

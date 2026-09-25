@@ -215,7 +215,7 @@ func TestGPT56MetadataCatalogAndProtocolOverride(t *testing.T) {
 		if err := writeRelayModelCatalog(home, profile); err != nil {
 			t.Fatal(err)
 		}
-		data, err := os.ReadFile(filepath.Join(home, "codex-models.json"))
+		data, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(relayModelCatalogRelativePath(profile.ID))))
 		if err != nil {
 			t.Fatal(err)
 		}

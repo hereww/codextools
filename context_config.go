@@ -113,23 +113,7 @@ func dedupeRootTomlLines(parts []string) []string {
 }
 
 func normalizeDuplicateTomlTables(contents string) string {
-	seen := map[string]bool{}
-	var kept []string
-	skipping := false
-	for _, line := range splitLines(contents) {
-		trimmed := strings.TrimSpace(line)
-		if isTomlHeader(trimmed) {
-			skipping = seen[trimmed]
-			seen[trimmed] = true
-			if skipping {
-				continue
-			}
-		}
-		if !skipping {
-			kept = append(kept, line)
-		}
-	}
-	return normalizeConfigText(strings.Join(kept, "\n"))
+	return normalizeDuplicateTomlDocument(contents)
 }
 
 func normalizeConfigText(config string) string {

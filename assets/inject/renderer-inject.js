@@ -1210,6 +1210,7 @@
   const codexServiceTierControlModes = new Set(["inherit", "global-standard", "global-fast", "custom"]);
   const codexServiceTierDispatcherPatchRetryDelaysMs = [500, 1500, 3000, 6000, 12000];
   ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].forEach((model) => codexServiceTierSupportedFastModels.add(model));
+  codexServiceTierSupportedFastModels.add("gpt-6-astra");
 
   function uniqueCodexAppAssetUrls(urls) {
     return Array.from(new Set((urls || []).filter((url) => typeof url === "string" && url.includes("/assets/") && url.split("?")[0].endsWith(".js"))));

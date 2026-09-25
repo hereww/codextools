@@ -1815,6 +1815,14 @@ body {
   justify-content: space-between;
 }
 
+.relay-vlm-test { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.vlm-test-preview { width: 88px; height: 72px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); }
+.vlm-test-result { flex-basis: 100%; padding: 10px 12px; border-left: 3px solid var(--border-strong); background: var(--surface-muted); }
+.vlm-test-result.is-success { border-left-color: var(--success); }
+.vlm-test-result.is-error { border-left-color: var(--danger); }
+.vlm-test-result p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vlm-test-result small { display: block; margin-top: 6px; color: var(--muted-foreground); }
+
 .image-relay-heading > div {
   display: grid;
   gap: 3px;

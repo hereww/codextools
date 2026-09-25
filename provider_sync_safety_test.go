@@ -355,6 +355,21 @@ func TestRunProviderSyncInvalidGlobalStateFailsClosed(t *testing.T) {
 	}
 }
 
+func TestNormalizedGlobalStatePreservesProjectlessThreadIDs(t *testing.T) {
+	projectless := []any{"thread-1", "thread-2", map[string]any{"legacy": true}}
+	state := map[string]any{"projectless-thread-ids": projectless}
+
+	got := normalizedGlobalState(state, nil)
+	data, err := json.Marshal(got["projectless-thread-ids"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(projectless)
+	if string(data) != string(want) {
+		t.Fatalf("projectless thread IDs changed: got %s, want %s", data, want)
+	}
+}
+
 func TestProviderSyncUnreadableGlobalStateFailsClosed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex-global-state.json")
 	if err := os.MkdirAll(path, 0o755); err != nil {

@@ -298,6 +298,7 @@ func normalizeSettings(settings backendSettings) backendSettings {
 		}
 		settings.RelayProfiles[index].ProxyURL = strings.TrimSpace(settings.RelayProfiles[index].ProxyURL)
 		settings.RelayProfiles[index].ModelList, settings.RelayProfiles[index].ModelWindows = normalizeModelListAndWindows(settings.RelayProfiles[index].ModelList, settings.RelayProfiles[index].ModelWindows)
+		settings.RelayProfiles[index].ModelAutoCompact = strings.TrimSpace(settings.RelayProfiles[index].ModelAutoCompact)
 		settings.RelayProfiles[index].ModelVLM = normalizeModelVLM(settings.RelayProfiles[index].ModelVLM)
 		settings.RelayProfiles[index].VLMAPIKey = strings.TrimSpace(settings.RelayProfiles[index].VLMAPIKey)
 		settings.RelayProfiles[index].VLMModel = strings.TrimSpace(settings.RelayProfiles[index].VLMModel)
@@ -590,6 +591,34 @@ func atomicWrite(path string, data []byte) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return replaceFile(tmp, path)
+}
+
+func atomicWriteWithMode(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	if err := file.Chmod(mode.Perm()); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
 		return err
 	}
 	return replaceFile(tmp, path)

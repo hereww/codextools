@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1204,7 +1205,7 @@ func TestModelSuffixAndWindowsWriteCatalogContextWindow(t *testing.T) {
 	if err := writeRelayModelCatalog(home, relay); err != nil {
 		t.Fatalf("write catalog failed: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(home, "codex-models.json"))
+	data, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(relayModelCatalogRelativePath(relay.ID))))
 	if err != nil {
 		t.Fatalf("read catalog failed: %v", err)
 	}
@@ -1224,6 +1225,63 @@ func TestModelSuffixAndWindowsWriteCatalogContextWindow(t *testing.T) {
 	}
 	if stringFromAny(models[2]["slug"]) != "bad[nope]" {
 		t.Fatalf("invalid suffix should remain in slug: %#v", models[2])
+	}
+}
+
+func TestRelayModelCatalogKeepsAstraMetadataAndProfileIsolation(t *testing.T) {
+	home := t.TempDir()
+	profile := relayProfile{ID: strings.Repeat("profile-", 40), Model: "gpt-6-astra", ModelList: "gpt-6-astra"}
+	path := relayModelCatalogRelativePath(profile.ID)
+	if len(filepath.Base(path)) > 80 {
+		t.Fatalf("profile catalog filename was not bounded: %q", path)
+	}
+	if err := writeRelayModelCatalog(home, profile); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Models) != 1 {
+		t.Fatalf("catalog models = %#v", catalog.Models)
+	}
+	model := catalog.Models[0]
+	if uint64FromAny(model["context_window"], 0) != 272000 || uint64FromAny(model["max_context_window"], 0) != 872000 {
+		t.Fatalf("Astra context metadata missing: %#v", model)
+	}
+	if !strings.Contains(string(data), `"service_tiers"`) {
+		t.Fatalf("Astra service tiers missing: %s", data)
+	}
+	if isManagedRelayModelCatalog("model-catalogs/../../outside.json") {
+		t.Fatal("catalog traversal path must not be treated as app-managed")
+	}
+}
+
+func TestRelayModelAutoCompactWritesRoundedPerModelThreshold(t *testing.T) {
+	data, ok, err := relayModelCatalogData(relayProfile{
+		ID: "compact", ModelList: "model-a\nmodel-b", ModelWindows: `{"model-a":"200K","model-b":"18446744073709551615"}`,
+		ModelAutoCompact: `{"model-a":"84.5%","model-b":"100%"}`,
+	})
+	if err != nil || !ok {
+		t.Fatalf("catalog generation = %v, %v", ok, err)
+	}
+	var catalog struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if got := uint64FromAny(catalog.Models[0]["auto_compact_token_limit"], 0); got != 169000 {
+		t.Fatalf("fractional compact threshold = %d", got)
+	}
+	if got := uint64FromAny(catalog.Models[1]["auto_compact_token_limit"], 0); got != math.MaxUint64 {
+		t.Fatalf("maximum-window 100%% threshold = %d", got)
 	}
 }
 

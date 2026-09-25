@@ -2,14 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 )
 
 type modelCatalogEntry struct {
-	Slug        string
-	DisplayName string
-	Window      uint64
+	Slug                  string
+	DisplayName           string
+	Window                uint64
+	AutoCompactPercent    uint32
+	HasAutoCompactPercent bool
 }
 
 func parseModelSuffix(raw string) (string, uint64, bool) {
@@ -48,10 +51,88 @@ func parseModelWindowToken(token string) (uint64, bool) {
 		token = strings.TrimSpace(token[:len(token)-1])
 	}
 	value, err := strconv.ParseUint(token, 10, 64)
-	if err != nil || value == 0 {
+	if err != nil || value == 0 || value > ^uint64(0)/multiplier {
 		return 0, false
 	}
 	return value * multiplier, true
+}
+
+func parseCompactPercentToken(token string) (uint32, bool) {
+	token = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(token), "%"))
+	if strings.HasSuffix(token, "%") {
+		return 0, false
+	}
+	whole, fraction, hasFraction := strings.Cut(token, ".")
+	if whole == "" || len(fraction) > 6 || !allASCIIDigits(whole) || (hasFraction && !allASCIIDigits(fraction)) {
+		return 0, false
+	}
+	wholeValue, err := strconv.ParseUint(whole, 10, 32)
+	if err != nil || wholeValue > 100 {
+		return 0, false
+	}
+	fractionValue := uint64(0)
+	if fraction != "" {
+		fractionValue, err = strconv.ParseUint(fraction, 10, 32)
+		if err != nil {
+			return 0, false
+		}
+		for index := len(fraction); index < 6; index++ {
+			fractionValue *= 10
+		}
+	}
+	percent := uint64(wholeValue)*1_000_000 + fractionValue
+	if percent == 0 || percent > 100_000_000 {
+		return 0, false
+	}
+	return uint32(percent), true
+}
+
+func allASCIIDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func parseModelAutoCompact(raw string) (map[string]string, error) {
+	values := map[string]string{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return values, nil
+	}
+	var object map[string]any
+	if err := json.Unmarshal([]byte(raw), &object); err == nil && object != nil {
+		for key, value := range object {
+			model := strings.TrimSpace(key)
+			percent, ok := parseCompactPercentToken(stringFromAny(value))
+			if model == "" || !ok {
+				return nil, fmt.Errorf("模型 %q 的自动压缩百分比无效", key)
+			}
+			values[model] = strconv.FormatUint(uint64(percent), 10)
+		}
+		return values, nil
+	}
+	for _, line := range strings.FieldsFunc(raw, func(ch rune) bool { return ch == '\n' || ch == '\r' || ch == ',' }) {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			key, value, ok = strings.Cut(line, ":")
+		}
+		if !ok {
+			return nil, fmt.Errorf("自动压缩配置格式无效")
+		}
+		model := strings.TrimSpace(key)
+		percent, valid := parseCompactPercentToken(value)
+		if model == "" || !valid {
+			return nil, fmt.Errorf("模型 %q 的自动压缩百分比无效", model)
+		}
+		values[model] = strconv.FormatUint(uint64(percent), 10)
+	}
+	return values, nil
 }
 
 func normalizeModelListAndWindows(modelList, modelWindows string) (string, string) {
@@ -124,7 +205,15 @@ func marshalModelWindows(windows map[string]string) string {
 }
 
 func collectModelCatalogEntries(modelList, modelWindows, currentModel string) []modelCatalogEntry {
+	return collectModelCatalogEntriesWithAutoCompact(modelList, modelWindows, "", currentModel)
+}
+
+func collectModelCatalogEntriesWithAutoCompact(modelList, modelWindows, modelAutoCompact, currentModel string) []modelCatalogEntry {
 	windowMap := parseModelWindows(modelWindows)
+	autoCompactMap, err := parseModelAutoCompact(modelAutoCompact)
+	if err != nil {
+		autoCompactMap = map[string]string{}
+	}
 	seen := map[string]bool{}
 	var list []modelCatalogEntry
 	add := func(raw string, target *[]modelCatalogEntry) {
@@ -141,7 +230,17 @@ func collectModelCatalogEntries(modelList, modelWindows, currentModel string) []
 		if window == 0 && suffixOK {
 			window = suffixWindow
 		}
-		*target = append(*target, modelCatalogEntry{Slug: slug, DisplayName: slug, Window: window})
+		compactPercent, hasCompactPercent := uint32(0), false
+		if configured, ok := autoCompactMap[slug]; ok {
+			parsed, parseErr := strconv.ParseUint(configured, 10, 32)
+			if parseErr == nil {
+				compactPercent, hasCompactPercent = uint32(parsed), true
+			}
+		}
+		*target = append(*target, modelCatalogEntry{
+			Slug: slug, DisplayName: slug, Window: window,
+			AutoCompactPercent: compactPercent, HasAutoCompactPercent: hasCompactPercent,
+		})
 	}
 	if strings.TrimSpace(currentModel) != "" {
 		add(currentModel, &list)

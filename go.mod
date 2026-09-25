@@ -6,6 +6,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/klauspost/compress v1.19.2
+	github.com/pelletier/go-toml/v2 v2.3.1
 	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.50.1
 )

@@ -1119,13 +1119,13 @@ func readCodexGlobalState(home string) (map[string]any, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return state, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("读取 global state 失败：%w", err)
 	}
 	if strings.TrimSpace(string(data)) == "" {
 		return state, nil
 	}
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析 global state 失败：%w", err)
 	}
 	if state == nil {
 		state = map[string]any{}

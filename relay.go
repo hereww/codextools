@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const relayAppliedModeMarkerPrefix = "# chatgpt-codex-tools: applied-relay-mode="
@@ -348,6 +351,26 @@ func ensureRelaySnapshot(profile relayProfile, currentConfig string, allowLegacy
 }
 
 func writeRelaySnapshot(home string, settings backendSettings, relay relayProfile, pure bool) (*string, error) {
+	return writeRelaySnapshotWithWriter(home, settings, relay, pure, writeRelaySnapshotFile)
+}
+
+type relaySnapshotFile struct {
+	Path       string
+	Exists     bool
+	Data       []byte
+	Mode       os.FileMode
+	IsSymlink  bool
+	LinkTarget string
+}
+
+type relaySnapshotWrite struct {
+	Path    string
+	Data    []byte
+	Mode    os.FileMode
+	Private bool
+}
+
+func writeRelaySnapshotWithWriter(home string, settings backendSettings, relay relayProfile, pure bool, writeFile func(relaySnapshotWrite) error) (*string, error) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return nil, err
 	}
@@ -355,25 +378,150 @@ func writeRelaySnapshot(home string, settings backendSettings, relay relayProfil
 	if err != nil {
 		return nil, err
 	}
+	if liveConfig, readErr := os.ReadFile(filepath.Join(home, "config.toml")); readErr == nil {
+		configContents = preserveLiveHookState(configContents, string(liveConfig))
+	}
 	if pure {
 		configContents = ensureConfigBearerToken(configContents, strings.TrimSpace(relay.APIKey))
 	}
 	configContents = withRelayAppliedModeMarker(configContents, relay.RelayMode)
-	if err := writeRelayModelCatalog(home, relay); err != nil {
+
+	writes := make([]relaySnapshotWrite, 0, 3)
+	catalogData, hasCatalog, err := relayModelCatalogData(relay)
+	if err != nil {
 		return nil, err
 	}
-	backupPath, err := writeCodexConfigWithBackup(filepath.Join(home, "config.toml"), configContents, "relay")
-	if err != nil {
-		return backupPath, err
+	if hasCatalog {
+		writes = append(writes, relaySnapshotWrite{Path: filepath.Join(home, filepath.FromSlash(relayModelCatalogRelativePath(relay.ID))), Data: catalogData, Mode: 0o644})
 	}
+	configPath := filepath.Join(home, "config.toml")
+	writes = append(writes, relaySnapshotWrite{Path: configPath, Data: []byte(configContents), Mode: 0o644})
 	authContents := canonicalAuthContents(relay)
-	if pure {
-		return backupPath, nil
+	if !pure && strings.TrimSpace(authContents) != "" {
+		writes = append(writes, relaySnapshotWrite{Path: filepath.Join(home, "auth.json"), Data: []byte(authContents), Mode: 0o600, Private: true})
 	}
-	if strings.TrimSpace(authContents) != "" {
-		return backupPath, os.WriteFile(filepath.Join(home, "auth.json"), []byte(authContents), 0o600)
+
+	snapshots, err := captureRelaySnapshotFiles(writes)
+	if err != nil {
+		return nil, err
+	}
+	var backupPath *string
+	for _, snapshot := range snapshots {
+		if snapshot.Path != configPath || !snapshot.Exists {
+			continue
+		}
+		path, backupErr := backupCodexConfig(configPath, "relay")
+		if backupErr != nil {
+			return nil, backupErr
+		}
+		backupPath = &path
+		break
+	}
+
+	for index, write := range writes {
+		if err := writeFile(write); err != nil {
+			rollbackErr := restoreRelaySnapshotFiles(snapshots[:index+1])
+			if rollbackErr != nil {
+				return backupPath, errors.Join(err, fmt.Errorf("回滚 relay 文件失败：%w", rollbackErr))
+			}
+			return backupPath, err
+		}
 	}
 	return backupPath, nil
+}
+
+func preserveLiveHookState(targetConfig, liveConfig string) string {
+	bom, targetText := splitTomlBOM(targetConfig)
+	_, liveText := splitTomlBOM(liveConfig)
+	var target, live map[string]any
+	if toml.Unmarshal([]byte(targetText), &target) != nil || toml.Unmarshal([]byte(liveText), &live) != nil {
+		return targetConfig
+	}
+	liveHooks, _ := live["hooks"].(map[string]any)
+	state, hasLiveState := liveHooks["state"]
+	if hasLiveState {
+		encoded, err := toml.Marshal(map[string]any{"hooks": map[string]any{"state": state}})
+		if err != nil {
+			return targetConfig
+		}
+		value := tableValues(string(encoded), "hooks")["state"]
+		if value == "" {
+			return targetConfig
+		}
+		return bom + upsertTableKey(targetText, "hooks", "state", value)
+	}
+	if _, exists := tableValues(targetText, "hooks")["state"]; exists {
+		return bom + removeTableKey(targetText, "hooks", "state")
+	}
+	return targetConfig
+}
+
+func writeRelaySnapshotFile(write relaySnapshotWrite) error {
+	if write.Private {
+		return atomicWriteWithMode(write.Path, write.Data, write.Mode)
+	}
+	return atomicWrite(write.Path, write.Data)
+}
+
+func captureRelaySnapshotFiles(writes []relaySnapshotWrite) ([]relaySnapshotFile, error) {
+	snapshots := make([]relaySnapshotFile, 0, len(writes))
+	for _, write := range writes {
+		snapshot := relaySnapshotFile{Path: write.Path}
+		info, err := os.Lstat(write.Path)
+		if os.IsNotExist(err) {
+			snapshots = append(snapshots, snapshot)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		snapshot.Exists = true
+		snapshot.Mode = info.Mode()
+		if info.Mode()&os.ModeSymlink != 0 {
+			snapshot.IsSymlink = true
+			snapshot.LinkTarget, err = os.Readlink(write.Path)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("%s 不是普通文件，拒绝切换中转配置", write.Path)
+			}
+			snapshot.Data, err = os.ReadFile(write.Path)
+			if err != nil {
+				return nil, err
+			}
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+func restoreRelaySnapshotFiles(snapshots []relaySnapshotFile) error {
+	var restoreErrors []error
+	for index := len(snapshots) - 1; index >= 0; index-- {
+		snapshot := snapshots[index]
+		if !snapshot.Exists {
+			if err := os.Remove(snapshot.Path); err != nil && !os.IsNotExist(err) {
+				restoreErrors = append(restoreErrors, err)
+			}
+			continue
+		}
+		if snapshot.IsSymlink {
+			if err := os.Remove(snapshot.Path); err != nil && !os.IsNotExist(err) {
+				restoreErrors = append(restoreErrors, err)
+				continue
+			}
+			if err := os.Symlink(snapshot.LinkTarget, snapshot.Path); err != nil {
+				restoreErrors = append(restoreErrors, err)
+			}
+			continue
+		}
+		if err := atomicWriteWithMode(snapshot.Path, snapshot.Data, snapshot.Mode); err != nil {
+			restoreErrors = append(restoreErrors, err)
+		}
+	}
+	return errors.Join(restoreErrors...)
 }
 
 func relayAppliedModeMarker(contents string) string {
@@ -865,11 +1013,25 @@ func relayConfigForWrite(settings backendSettings, relay relayProfile) (string, 
 func relayConfigWithCommonAndLimits(settings backendSettings, relay relayProfile, configContents string) (string, error) {
 	profileConfig, _ := splitContextConfigSections(configContents)
 	profileConfig = applyRemoteControlOpenAIBaseURL(profileConfig, relay)
+	if strings.TrimSpace(relay.ModelAutoCompact) != "" {
+		if _, err := parseModelAutoCompact(relay.ModelAutoCompact); err != nil {
+			return "", fmt.Errorf("model_auto_compact: %w", err)
+		}
+	}
 	existingCatalog := strings.TrimSpace(rootKeyString(profileConfig, "model_catalog_json"))
 	managedCatalog := isManagedRelayModelCatalog(existingCatalog)
-	if strings.TrimSpace(relay.ModelList) != "" || strings.TrimSpace(relay.ModelWindows) != "" {
+	hasModelConfig := strings.TrimSpace(relay.ModelList) != "" || strings.TrimSpace(relay.ModelWindows) != "" || strings.TrimSpace(relay.ModelAutoCompact) != ""
+	if hasModelConfig && existingCatalog != "" && !managedCatalog {
+		entries := collectModelCatalogEntriesWithAutoCompact(relay.ModelList, relay.ModelWindows, relay.ModelAutoCompact, relay.Model)
+		for _, entry := range entries {
+			if entry.Window > 0 || entry.HasAutoCompactPercent {
+				return "", errors.New("当前配置使用外部 model_catalog_json，无法同时应用每模型窗口或自动压缩；请先备份并切换为 CodexTools 管理的目录")
+			}
+		}
+	}
+	if hasModelConfig {
 		if existingCatalog == "" || managedCatalog {
-			profileConfig = upsertRootKey(profileConfig, "model_catalog_json", quoteToml("codex-models.json"))
+			profileConfig = upsertRootKey(profileConfig, "model_catalog_json", quoteToml(relayModelCatalogRelativePath(relay.ID)))
 		}
 	} else if managedCatalog {
 		profileConfig = removeRootKey(profileConfig, "model_catalog_json")
@@ -897,10 +1059,38 @@ func relayConfigWithCommonAndLimits(settings backendSettings, relay relayProfile
 func isManagedRelayModelCatalog(path string) bool {
 	name := strings.ToLower(strings.TrimSpace(path))
 	name = strings.ReplaceAll(name, `\`, "/")
-	if slash := strings.LastIndex(name, "/"); slash >= 0 {
-		name = name[slash+1:]
+	baseName := name
+	if separator := strings.LastIndex(baseName, "/"); separator >= 0 {
+		baseName = baseName[separator+1:]
 	}
-	return name == "codex-models.json" || name == "cc-switch-model-catalog.json"
+	if baseName == "cc-switch-model-catalog.json" {
+		return true
+	}
+	if filepath.IsAbs(path) || (len(name) > 2 && name[1] == ':' && name[2] == '/') || strings.HasPrefix(name, "/") {
+		return false
+	}
+	name = strings.TrimPrefix(name, "./")
+	if name == "codex-models.json" {
+		return true
+	}
+	if !strings.HasPrefix(name, "model-catalogs/") || filepath.ToSlash(filepath.Clean(filepath.FromSlash(name))) != name {
+		return false
+	}
+	parts := strings.Split(name, "/")
+	return len(parts) == 2 && parts[1] != "" && strings.HasSuffix(parts[1], ".json")
+}
+
+func relayModelCatalogRelativePath(profileID string) string {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		profileID = "default"
+	}
+	hash := sha256.Sum256([]byte(profileID))
+	fileID := sanitizeID(profileID)
+	if len(fileID) > 48 {
+		fileID = strings.Trim(fileID[:48], "-")
+	}
+	return fmt.Sprintf("model-catalogs/%s-%x.json", fileID, hash[:4])
 }
 
 func mergeRelayCommonConfig(profileConfig, commonConfig string) string {
@@ -977,13 +1167,32 @@ func parsePositiveUintString(value, label string) (uint64, error) {
 }
 
 func writeRelayModelCatalog(home string, relay relayProfile) error {
-	entries := collectModelCatalogEntries(relay.ModelList, relay.ModelWindows, relay.Model)
+	data, shouldWrite, err := relayModelCatalogData(relay)
+	if err != nil || !shouldWrite {
+		return err
+	}
+	return atomicWrite(filepath.Join(home, filepath.FromSlash(relayModelCatalogRelativePath(relay.ID))), data)
+}
+
+func relayModelCatalogData(relay relayProfile) ([]byte, bool, error) {
+	entries := collectModelCatalogEntriesWithAutoCompact(relay.ModelList, relay.ModelWindows, relay.ModelAutoCompact, relay.Model)
 	if len(entries) == 0 {
-		return nil
+		return nil, false, nil
+	}
+	if _, err := parseModelAutoCompact(relay.ModelAutoCompact); err != nil {
+		return nil, false, fmt.Errorf("model_auto_compact: %w", err)
+	}
+	fallbackWindow := uint64(0)
+	var err error
+	if strings.TrimSpace(relay.ContextWindow) != "" {
+		fallbackWindow, err = parsePositiveUintString(relay.ContextWindow, "上下文大小")
+		if err != nil {
+			return nil, false, err
+		}
 	}
 	items := make([]map[string]any, 0, len(entries))
 	for index, entry := range entries {
-		item := gpt56CatalogEntry(entry.Slug)
+		item := bundledModelCatalogEntry(entry.Slug)
 		if item == nil {
 			item = map[string]any{}
 		}
@@ -1003,12 +1212,16 @@ func writeRelayModelCatalog(home string, relay relayProfile) error {
 		} {
 			item[key] = value
 		}
-		if entry.Window > 0 {
-			item["context_window"] = entry.Window
-			item["max_context_window"] = entry.Window
-		} else if _, ok := item["context_window"]; !ok {
-			item["context_window"] = uint64(272000)
-			item["max_context_window"] = uint64(272000)
+		metadataWindow := uint64FromAny(item["context_window"], 0)
+		metadataMaxWindow := uint64FromAny(item["max_context_window"], 0)
+		contextWindow := firstPositiveUint(entry.Window, fallbackWindow, metadataWindow, 272000)
+		maxContextWindow := firstPositiveUint(entry.Window, fallbackWindow, metadataMaxWindow, contextWindow)
+		item["context_window"] = contextWindow
+		item["max_context_window"] = maxContextWindow
+		if entry.HasAutoCompactPercent {
+			item["auto_compact_token_limit"] = compactPercentTokenLimit(contextWindow, entry.AutoCompactPercent)
+		} else {
+			item["auto_compact_token_limit"] = nil
 		}
 		if isGPT56Model(entry.Slug) {
 			item["use_responses_lite"] = relay.Protocol == "chatCompletions"
@@ -1017,9 +1230,28 @@ func writeRelayModelCatalog(home string, relay relayProfile) error {
 	}
 	data, err := json.MarshalIndent(map[string]any{"models": items}, "", "  ")
 	if err != nil {
-		return err
+		return nil, false, err
 	}
-	return atomicWrite(filepath.Join(home, "codex-models.json"), data)
+	return data, true, nil
+}
+
+func firstPositiveUint(values ...uint64) uint64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func compactPercentTokenLimit(contextWindow uint64, percent uint32) uint64 {
+	const denominator = uint64(100_000_000)
+	if contextWindow == 0 || percent == 0 || uint64(percent) > denominator {
+		return 0
+	}
+	whole := (contextWindow / denominator) * uint64(percent)
+	remainder := (contextWindow % denominator) * uint64(percent)
+	return whole + (remainder+denominator/2)/denominator
 }
 
 func applyRelayConfig(home string, relay relayProfile, pure bool) error {

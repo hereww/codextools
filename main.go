@@ -65,6 +65,9 @@ var petRealMouseInjectScript string
 //go:embed assets/gpt56-model-metadata-compat.json
 var gpt56ModelMetadataJSON []byte
 
+//go:embed assets/astra-model-metadata-compat.json
+var astraModelMetadataJSON []byte
+
 type commandResult map[string]any
 
 func main() {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -80,6 +82,19 @@ func TestNativeProxyEnvironmentAndChromiumArguments(t *testing.T) {
 	}
 }
 
+func TestNativeProxyEnvironmentRequiresAtLeastOneNativePurpose(t *testing.T) {
+	settings := defaultSettings()
+	settings.ProxyEnabled = true
+	settings.ProxyURL = "http://127.0.0.1:10809"
+	if got := proxyEnvironmentForSettings(settings); len(got) != 0 {
+		t.Fatalf("global proxy with all native-purpose toggles off must not affect Codex: %#v", got)
+	}
+	settings.ProxyRealtimeEnabled = true
+	if got := proxyEnvironmentForSettings(settings); len(got) == 0 {
+		t.Fatal("enabled native Realtime purpose should provide proxy environment")
+	}
+}
+
 func TestAdvancedVoiceProxyUsesChromiumAndWebRTCProxyPath(t *testing.T) {
 	settings := defaultSettings()
 	settings.ProxyEnabled = true
@@ -116,5 +131,64 @@ func TestRealtimeGlobalProxyIsIndependentFromRelayBaseURL(t *testing.T) {
 	}
 	if got == nil || got.Host != "127.0.0.1:10809" {
 		t.Fatalf("realtime should prefer global official proxy, got %#v", got)
+	}
+
+	settings.ProxyRealtimeEnabled = false
+	got, err = effectiveProxyURL(settings, profile, proxyPurposeRealtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("disabled realtime proxy must not inherit a provider proxy, got %#v", got)
+	}
+}
+
+func TestOfficialRealtimeHTTPClientDoesNotInheritProviderProxy(t *testing.T) {
+	settings := defaultSettings()
+	settings.ProxyEnabled = true
+	settings.ProxyURL = "http://127.0.0.1:10809"
+	profile := relayProfile{
+		RelayMode:    "mixedApi",
+		ProxyEnabled: true,
+		ProxyURL:     "http://provider-proxy.example:8080",
+	}
+
+	client, err := officialRealtimeHTTPClientForSettings(settings, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		if client.Transport != nil {
+			t.Fatalf("expected default HTTP transport when Realtime proxy is off, got %T", client.Transport)
+		}
+		transport, ok = http.DefaultTransport.(*http.Transport)
+		if !ok {
+			t.Fatalf("expected default HTTP transport, got %T", http.DefaultTransport)
+		}
+	}
+	if client.Transport != nil && transport.Proxy != nil {
+		t.Fatal("Realtime should remain direct when its dedicated proxy toggle is off")
+	}
+
+	settings.ProxyRealtimeEnabled = true
+	client, err = officialRealtimeHTTPClientForSettings(settings, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok = client.Transport.(*http.Transport)
+	if !ok || transport.Proxy == nil {
+		t.Fatalf("Realtime's explicit proxy toggle should configure a proxy transport: %T", client.Transport)
+	}
+	targetURL, err := url.Parse("https://chatgpt.com/backend-api/codex/realtime/calls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := transport.Proxy(&http.Request{URL: targetURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyURL == nil || proxyURL.Host != "127.0.0.1:10809" {
+		t.Fatalf("Realtime should use the dedicated global proxy, got %#v", proxyURL)
 	}
 }

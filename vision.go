@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +27,181 @@ const (
 	vlmCacheTTL            = 24 * time.Hour
 	vlmRequestLimit        = 30 * time.Second
 	vlmContextSafetyMargin = 0.9
+	vlmTestImageLimit      = 10 * 1024 * 1024
 )
+
+func (s *server) testVLMProfile(ctx context.Context, args map[string]any) (result commandResult) {
+	request := mapArg(args, "request")
+	apiKey := strings.TrimSpace(stringFromAny(request["apiKey"]))
+	defer func() { result = redactVLMTestResult(result, apiKey) }()
+
+	model := strings.TrimSpace(stringFromAny(request["model"]))
+	baseURL := strings.TrimRight(strings.TrimSpace(stringFromAny(request["baseUrl"])), "/")
+	imageDataURL := strings.TrimSpace(stringFromAny(request["imageDataUrl"]))
+	if apiKey == "" || model == "" || baseURL == "" {
+		return failed("VLM 测试配置不完整：请填写 API Key、Model 和 Base URL。", map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	_, mimeType, err := decodeVLMTestImage(imageDataURL)
+	if err != nil {
+		return failed(err.Error(), map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	endpoint, err := vlmTestEndpoint(baseURL)
+	if err != nil {
+		return failed("VLM Base URL 无效：请输入不含凭据的 http:// 或 https:// 地址。", map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	settings := loadSettings()
+	profile := relayProfile{
+		ID: "vlm-test", VLMAPIKey: apiKey, VLMModel: model, VLMBaseURL: baseURL,
+		ProxyEnabled: boolFromAny(request["proxyEnabled"]), ProxyURL: strings.TrimSpace(stringFromAny(request["proxyUrl"])),
+	}
+	payload, err := buildVLMTestPayload(model, mimeType, imageDataURL)
+	if err != nil {
+		return failed("构造 VLM 测试请求失败。", map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return failed("构造 VLM 测试请求失败。", map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	testCtx, cancel := context.WithTimeout(ctx, vlmRequestLimit)
+	defer cancel()
+	req, err := http.NewRequestWithContext(testCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return failed("VLM Base URL 无效。", map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	req.Header.Set("authorization", "Bearer "+apiKey)
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("user-agent", "CodexTools-VLM-Test/"+version)
+	client, err := relayHTTPClientForSettings(settings, profile, proxyPurposeVLM)
+	if err != nil {
+		return failed("VLM 代理配置无效："+redactVLMTestText(err.Error(), apiKey), map[string]any{"vlmStatus": "client_error", "model": model})
+	}
+	started := time.Now()
+	resp, err := client.Do(req)
+	duration := time.Since(started).Milliseconds()
+	if err != nil {
+		status, message := "send_error", "VLM 请求失败，请检查 Base URL、网络和代理设置。"
+		if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") {
+			status, message = "timeout", "VLM 请求超时，请检查服务地址和网络代理。"
+		}
+		return commandResult{"status": "failed", "message": message, "vlmStatus": status, "httpCode": 0, "durationMs": duration, "model": model, "error": message}
+	}
+	defer resp.Body.Close()
+	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024+1))
+	if readErr != nil || len(responseBody) > 4*1024*1024 {
+		return commandResult{"status": "failed", "message": "VLM 响应读取失败或超过 4MB 限制。", "vlmStatus": "http_error", "httpCode": resp.StatusCode, "durationMs": duration, "model": model}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		preview := stepwiseShortText(redactVLMTestText(string(responseBody), apiKey), 320)
+		message := fmt.Sprintf("VLM 服务返回 HTTP %d。", resp.StatusCode)
+		if preview != "" {
+			message += " " + preview
+		}
+		return commandResult{"status": "failed", "message": message, "vlmStatus": "http_error", "httpCode": resp.StatusCode, "durationMs": duration, "model": model, "error": message}
+	}
+	var decoded map[string]any
+	if json.Unmarshal(responseBody, &decoded) != nil {
+		return commandResult{"status": "failed", "message": "VLM 返回了无效 JSON。", "vlmStatus": "json_error", "httpCode": resp.StatusCode, "durationMs": duration, "model": model}
+	}
+	choices, _ := decoded["choices"].([]any)
+	if len(choices) == 0 {
+		return commandResult{"status": "failed", "message": "VLM 响应中没有 choices。", "vlmStatus": "no_text", "httpCode": resp.StatusCode, "durationMs": duration, "model": model}
+	}
+	choice, _ := choices[0].(map[string]any)
+	messageValue, _ := choice["message"].(map[string]any)
+	description := strings.TrimSpace(stringFromAny(messageValue["content"]))
+	if description == "" {
+		return commandResult{"status": "failed", "message": "VLM 没有返回图片描述。", "vlmStatus": "no_text", "httpCode": resp.StatusCode, "durationMs": duration, "model": model}
+	}
+	description = redactVLMTestText(description, apiKey)
+	return commandResult{"status": "ok", "message": "VLM 图片识别测试成功。", "vlmStatus": "ok", "httpCode": resp.StatusCode, "durationMs": duration, "model": model, "description": description}
+}
+
+func vlmTestEndpoint(baseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("invalid VLM base URL")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/chat/completions"
+	parsed.RawPath = ""
+	return parsed.String(), nil
+}
+
+func decodeVLMTestImage(value string) ([]byte, string, error) {
+	metadata, encoded, ok := strings.Cut(value, ",")
+	if !ok || !strings.HasPrefix(strings.ToLower(metadata), "data:image/") || !strings.HasSuffix(strings.ToLower(metadata), ";base64") {
+		return nil, "", errors.New("请选择有效的 base64 图片文件。")
+	}
+	if len(encoded) > base64.StdEncoding.EncodedLen(vlmTestImageLimit)+4 {
+		return nil, "", errors.New("图片超过 10MB，请换一张较小的图片。")
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, "", errors.New("图片数据无法解码，请重新选择。")
+	}
+	if len(data) == 0 || len(data) > vlmTestImageLimit {
+		return nil, "", errors.New("图片为空或超过 10MB 限制。")
+	}
+	mimeType := strings.TrimSuffix(strings.TrimPrefix(metadata, "data:"), ";base64")
+	return data, mimeType, nil
+}
+
+func buildVLMTestPayload(model, mimeType, imageDataURL string) (map[string]any, error) {
+	if strings.TrimSpace(model) == "" || strings.TrimSpace(mimeType) == "" || imageDataURL == "" {
+		return nil, errors.New("missing VLM test request data")
+	}
+	return map[string]any{
+		"model": model,
+		"messages": []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": imageDataURL}},
+			map[string]any{"type": "text", "text": "请描述图片内容。如包含文字，请精确提取图片中的文字。"},
+		}}},
+		"stream": false,
+	}, nil
+}
+
+func redactVLMTestText(value, apiKey string) string {
+	if apiKey != "" {
+		for _, candidate := range []string{
+			apiKey,
+			url.QueryEscape(apiKey),
+			base64.StdEncoding.EncodeToString([]byte(apiKey)),
+			base64.RawStdEncoding.EncodeToString([]byte(apiKey)),
+			base64.URLEncoding.EncodeToString([]byte(apiKey)),
+			base64.RawURLEncoding.EncodeToString([]byte(apiKey)),
+		} {
+			if candidate != "" {
+				value = strings.ReplaceAll(value, candidate, "[已隐藏]")
+			}
+		}
+	}
+	return value
+}
+
+func redactVLMTestResult(result commandResult, apiKey string) commandResult {
+	for key, value := range result {
+		result[key] = redactVLMTestValue(value, apiKey)
+	}
+	return result
+}
+
+func redactVLMTestValue(value any, apiKey string) any {
+	switch typed := value.(type) {
+	case string:
+		return redactVLMTestText(typed, apiKey)
+	case map[string]any:
+		for key, nested := range typed {
+			typed[key] = redactVLMTestValue(nested, apiKey)
+		}
+		return typed
+	case []any:
+		for index, nested := range typed {
+			typed[index] = redactVLMTestValue(nested, apiKey)
+		}
+		return typed
+	default:
+		return value
+	}
+}
 
 type vlmCacheEntry struct {
 	Description string

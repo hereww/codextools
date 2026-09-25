@@ -716,6 +716,37 @@ func upsertTableKey(contents, table, key, value string) string {
 	return ensureTrailingNewline(strings.Join(lines, "\n"))
 }
 
+func removeTableKey(contents, table, key string) string {
+	bom, contents := splitTomlBOM(contents)
+	lines := splitLines(contents)
+	header := "[" + table + "]"
+	tableStart := -1
+	tableEnd := len(lines)
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if tableStart >= 0 {
+				tableEnd = index
+				break
+			}
+			if trimmed == header {
+				tableStart = index
+			}
+		}
+	}
+	if tableStart < 0 {
+		return bom + contents
+	}
+	filtered := make([]string, 0, len(lines)-1)
+	for index, line := range lines {
+		if index > tableStart && index < tableEnd && rootLineKey(line) == key {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return bom + strings.Join(filtered, "\n")
+}
+
 func runProviderSync(home string) providerSyncResult {
 	return runProviderSyncWithLock(home, true, "")
 }
@@ -762,6 +793,20 @@ func runProviderSyncLocked(home, explicitTargetProvider string) providerSyncResu
 	changes, err := collectSessionChanges(home, targetProvider)
 	if err != nil {
 		return providerSyncResult{Status: "skipped", Message: "Provider sync skipped: " + err.Error(), TargetProvider: targetProvider}
+	}
+	globalState, err := readCodexGlobalState(home)
+	if err != nil {
+		return providerSyncResult{Status: "skipped", Message: "Provider sync skipped: " + err.Error(), TargetProvider: targetProvider}
+	}
+	projectless := map[string]bool{}
+	for _, id := range stringsFromAnySlice(globalState["projectless-thread-ids"]) {
+		projectless[id] = true
+		projectless[bareSessionID(id)] = true
+	}
+	for index := range changes {
+		if projectless[changes[index].ThreadID] || projectless[bareSessionID(changes[index].ThreadID)] {
+			changes[index].CWD = ""
+		}
 	}
 	var rewriteChanges []sessionChange
 	for _, change := range changes {
@@ -1826,30 +1871,86 @@ func providerSyncFirstLineParts(line string) (string, string) {
 }
 
 func countSQLiteUpdates(path, targetProvider string, changes []sessionChange) int {
-	if !fileExists(path) || !sqliteHasColumn(path, "threads", "id") {
+	if !fileExists(path) {
 		return 0
 	}
-	count, _ := sqliteScalarInt(path, "SELECT COUNT(*) FROM threads WHERE COALESCE(model_provider, '') <> ?", targetProvider)
-	if sqliteHasColumn(path, "threads", "thread_source") {
-		count += countSQLiteThreadSourceUpdates(path, changes)
+	db, err := openSQLite(path)
+	if err != nil {
+		return 0
 	}
-	if sqliteHasColumn(path, "threads", "has_user_event") {
-		for _, change := range changes {
-			if change.HasUserEvent && change.ThreadID != "" {
-				n, _ := sqliteScalarInt(path, "SELECT COUNT(*) FROM threads WHERE id = ? AND COALESCE(has_user_event, 0) <> 1", change.ThreadID)
-				count += n
+	defer db.Close()
+	columns, err := sqliteTableColumns(db, "threads")
+	if err != nil || !containsString(columns, "id") {
+		return 0
+	}
+	selected := []string{"id"}
+	for _, name := range []string{"model_provider", "thread_source", "has_user_event", "cwd"} {
+		if containsString(columns, name) {
+			selected = append(selected, name)
+		}
+	}
+	quoted := make([]string, len(selected))
+	for index, name := range selected {
+		quoted[index] = quoteSQLiteIdentifier(name)
+	}
+	rows, err := db.Query("SELECT " + strings.Join(quoted, ", ") + " FROM threads")
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	changeByID := make(map[string]sessionChange, len(changes))
+	for _, change := range changes {
+		if change.ThreadID != "" {
+			changeByID[change.ThreadID] = change
+		}
+	}
+	seen := make(map[string]bool, len(changeByID))
+	count := 0
+	for rows.Next() {
+		values := make([]any, len(selected))
+		dest := make([]any, len(values))
+		for index := range values {
+			dest[index] = &values[index]
+		}
+		if rows.Scan(dest...) != nil {
+			return 0
+		}
+		row := make(map[string]any, len(selected))
+		for index, name := range selected {
+			row[name] = values[index]
+		}
+		id := strings.TrimSpace(stringFromAny(row["id"]))
+		change, hasChange := changeByID[id]
+		if hasChange {
+			seen[id] = true
+		}
+		if _, ok := row["model_provider"]; ok && stringFromAny(row["model_provider"]) != targetProvider {
+			count++
+		}
+		if hasChange && change.HasUserEvent && stringFromAny(row["thread_source"]) == "" {
+			if _, ok := row["thread_source"]; ok {
+				count++
+			}
+		}
+		if hasChange && change.HasUserEvent {
+			if value, ok := row["has_user_event"]; ok && int64FromFlexible(value) != 1 {
+				count++
+			}
+		}
+		if hasChange && change.CWD != "" {
+			if value, ok := row["cwd"]; ok && stringFromAny(value) != change.CWD {
+				count++
 			}
 		}
 	}
-	if sqliteHasColumn(path, "threads", "cwd") {
-		for _, change := range changes {
-			if change.ThreadID != "" && change.CWD != "" {
-				n, _ := sqliteScalarInt(path, "SELECT COUNT(*) FROM threads WHERE id = ? AND COALESCE(cwd, '') <> ?", change.ThreadID, change.CWD)
-				count += n
-			}
+	if rows.Err() != nil {
+		return 0
+	}
+	for id, change := range changeByID {
+		if change.HasUserEvent && !seen[id] {
+			count++
 		}
 	}
-	count += countMissingSQLiteThreads(path, changes)
 	return count
 }
 
@@ -2226,6 +2327,9 @@ func loadGlobalState(path string) (map[string]any, error) {
 
 func normalizedGlobalState(state map[string]any, changes []sessionChange) map[string]any {
 	next := map[string]any{}
+	if projectless, exists := state["projectless-thread-ids"]; exists {
+		next["projectless-thread-ids"] = projectless
+	}
 	historyRoots := providerSyncWorkspaceRoots(changes)
 	if value, ok := state["electron-saved-workspace-roots"]; ok {
 		next["electron-saved-workspace-roots"] = dedupePaths(append(pathArray(value), historyRoots...))

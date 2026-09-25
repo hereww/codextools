@@ -90,16 +90,10 @@ func globalProxyURL(settings backendSettings, purpose proxyPurpose) (*url.URL, e
 }
 
 func effectiveProxyURL(settings backendSettings, profile relayProfile, purpose proxyPurpose) (*url.URL, error) {
-	// Native ChatGPT traffic must use the explicit global policy. Relay/VLM
-	// requests preserve the profile proxy as the first choice for compatibility.
-	if purpose == proxyPurposeRemoteControl || purpose == proxyPurposeOfficialAuth {
+	// Native ChatGPT traffic must use the explicit global policy. In particular,
+	// official Realtime must never inherit a third-party relay's proxy setting.
+	if purpose == proxyPurposeRemoteControl || purpose == proxyPurposeOfficialAuth || purpose == proxyPurposeRealtime {
 		return globalProxyURL(settings, purpose)
-	}
-	if purpose == proxyPurposeRealtime {
-		if proxyURL, err := globalProxyURL(settings, purpose); err != nil || proxyURL != nil {
-			return proxyURL, err
-		}
-		return relayProfileProxyURL(profile)
 	}
 	if profileURL, err := relayProfileProxyURL(profile); err != nil || profileURL != nil {
 		return profileURL, err
@@ -125,7 +119,7 @@ func proxyHTTPClient(settings backendSettings, profile relayProfile, purpose pro
 }
 
 func proxyEnvironmentForSettings(settings backendSettings) []string {
-	if !settings.ProxyEnabled || strings.TrimSpace(settings.ProxyURL) == "" {
+	if !nativeDesktopProxyEnabled(settings) {
 		return nil
 	}
 	if _, err := parseConfiguredProxyURL(settings.ProxyURL); err != nil {

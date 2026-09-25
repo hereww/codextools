@@ -373,6 +373,7 @@ type RelayProfile = {
   modelInsertMode: string;
   modelList: string;
   modelWindows: string;
+  modelAutoCompact: string;
   modelRoutes: RelayModelRoute[];
   modelVlm: string;
   vlmApiKey: string;
@@ -689,6 +690,17 @@ type RelayProfileModelsResult = CommandResult<{
   models: string[];
   endpoint: string;
 }>;
+
+type VLMTestResult = CommandResult<{
+  vlmStatus: string;
+  httpCode?: number;
+  durationMs?: number;
+  model?: string;
+  description?: string;
+  error?: string;
+}>;
+
+const VLM_TEST_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 type Sub2APIBillingResult = CommandResult<{
   endpoint: string;
@@ -1068,6 +1080,7 @@ const defaultSettings: BackendSettings = {
       modelInsertMode: "patch",
       modelList: "",
       modelWindows: "",
+      modelAutoCompact: "",
       modelRoutes: [],
       modelVlm: "",
       vlmApiKey: "",
@@ -2335,6 +2348,20 @@ export function App() {
     if (result) showNotice("Stepwise 测试", result.message, result.status);
   };
 
+  const testVLMProfile = async (profile: RelayProfile, imageDataUrl: string) =>
+    run(() =>
+      call<VLMTestResult>("test_vlm_profile", {
+        request: {
+          apiKey: profile.vlmApiKey,
+          model: profile.vlmModel,
+          baseUrl: profile.vlmBaseUrl,
+          imageDataUrl,
+          proxyEnabled: profile.proxyEnabled,
+          proxyUrl: profile.proxyUrl,
+        },
+      }),
+    );
+
   const fetchRelayProfileModels = async (profile: RelayProfile) => {
     const result = await run(() => call<RelayProfileModelsResult>("fetch_relay_profile_models", { profile }));
     if (result) showNotice("模型列表", result.message, result.status);
@@ -2704,6 +2731,7 @@ export function App() {
       showNotice,
       testRelayProfile,
       testStepwiseSettings,
+      testVLMProfile,
       fetchRelayProfileModels,
       fetchSub2APIBilling,
       diagnoseRelayProfile,
@@ -3032,6 +3060,7 @@ type Actions = {
   showNotice: (title: string, message: string, status?: Status) => void;
   testRelayProfile: (profile: RelayProfile) => Promise<void>;
   testStepwiseSettings: (settings: BackendSettings) => Promise<void>;
+  testVLMProfile: (profile: RelayProfile, imageDataUrl: string) => Promise<VLMTestResult | null>;
   fetchRelayProfileModels: (profile: RelayProfile) => Promise<string[] | null>;
   fetchSub2APIBilling: (profile: RelayProfile) => Promise<Sub2APIBillingResult | null>;
   diagnoseRelayProfile: (profile: RelayProfile) => Promise<ProviderDoctorResult | null>;
@@ -5293,10 +5322,10 @@ function ProxyScreen({
 }) {
   const update = (patch: Partial<BackendSettings>) => onFormChange({ ...form, ...patch });
   const toggleRows: Array<{ key: keyof BackendSettings; title: string; detail: string }> = [
-    { key: "proxyRelayEnabled", title: "中转请求", detail: "Relay 上游、图片、VLM 和音频请求使用该代理。供应商详情中的专用代理优先。" },
-    { key: "proxyRemoteControlEnabled", title: "远程控制", detail: "启动 ChatGPT 时注入代理环境和 Chromium 代理参数，解决 Windows WebSocket 直连超时。" },
-    { key: "proxyOfficialAuthEnabled", title: "官方登录 / 账号绑定", detail: "让 ChatGPT 原生登录和官方账号绑定走代理，不修改系统 WinHTTP。" },
-    { key: "proxyRealtimeEnabled", title: "ChatGPT 高级语音 / Realtime", detail: "让 ChatGPT 原生高级语音的 HTTPS、WebSocket 和 WebRTC 媒体链路使用代理；语音仍然只访问官方服务。" },
+    { key: "proxyRelayEnabled", title: "中转请求", detail: "Relay 上游请求使用该代理；供应商详情中的专用代理优先。图片、VLM、音频和 Stepwise 可在各自用途单独启用。" },
+    { key: "proxyRemoteControlEnabled", title: "远程控制", detail: "启动 ChatGPT 时注入原生应用代理，帮助远程控制 WebSocket 通过代理连接；不会修改系统 WinHTTP。" },
+    { key: "proxyOfficialAuthEnabled", title: "官方登录 / 账号绑定", detail: "为 ChatGPT 原生登录和账号绑定启用应用代理；与远控、语音共用原生应用的代理通道。" },
+    { key: "proxyRealtimeEnabled", title: "ChatGPT 高级语音 / Realtime", detail: "官方 Realtime 信令与 WebSocket 使用此代理；语音仍只访问官方服务，并与远控/登录共用原生应用代理通道。" },
     { key: "proxyModelCatalogEnabled", title: "模型目录", detail: "管理器请求 /models 时使用代理。" },
     { key: "proxyAudioEnabled", title: "音频转写", detail: "中转模式下的音频转写请求使用代理。" },
     { key: "proxyVlmEnabled", title: "VLM 图片理解", detail: "图片理解请求使用代理；不会把图片内容写入诊断日志。" },
@@ -5305,13 +5334,13 @@ function ProxyScreen({
   return (
     <>
       <Panel>
-        <CardHead title="网络代理" detail="代理只注入 CodexTools 启动的进程和后端请求，不会修改 Windows WinHTTP 或系统代理。" />
+        <CardHead title="网络代理" detail="后端用途可独立控制；ChatGPT 原生应用代理按进程共享，不修改 Windows WinHTTP 或系统代理。" />
         <CardContent>
           <label className="switch-row">
             <input checked={form.proxyEnabled} onChange={(event) => update({ proxyEnabled: event.currentTarget.checked })} type="checkbox" />
             <span>
               <strong>启用全局代理配置</strong>
-              <small>先填写代理地址，再按用途打开下面的开关。</small>
+              <small>填写代理地址后，再选择需要代理的后端请求和原生应用能力。</small>
             </span>
           </label>
           <Field label="HTTP / HTTPS 代理地址">
@@ -5330,7 +5359,7 @@ function ProxyScreen({
               spellCheck={false}
             />
           </Field>
-          <p className="field-hint">支持 http:// 和 https://，可带认证信息。保存后需要完全退出并重新启动 ChatGPT，新的代理参数才会进入高级语音和远程控制链路；不会修改系统 WinHTTP。</p>
+          <p className="field-hint">支持 http:// 和 https://，可带认证信息。原生应用用途需完全退出并重启 ChatGPT 才生效；代理作用于 ChatGPT 进程的网络栈，不能按 API 路径精确隔离。后端用途仍按开关分别处理。</p>
           <Toolbar>
             <Button onClick={() => void actions.saveSettings()}>
               <Save className="h-4 w-4" />
@@ -5340,7 +5369,7 @@ function ProxyScreen({
         </CardContent>
       </Panel>
       <Panel>
-        <CardHead title="代理用途" detail="每个用途独立生效。关闭用途开关后，相关请求回到原有连接方式。" />
+        <CardHead title="代理用途" detail="后端请求用途独立生效。远程控制、官方登录与高级语音共享 ChatGPT 原生进程代理，开启其中一项可能让该进程的其他网络请求也经过代理。" />
         <CardContent>
           {toggleRows.map((row) => (
             <label className="switch-row" key={String(row.key)}>
@@ -6836,6 +6865,11 @@ function RelayProfileEditor({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [doctorRunning, setDoctorRunning] = useState(false);
   const [doctorResult, setDoctorResult] = useState<ProviderDoctorResult | null>(null);
+  const [vlmImageDataUrl, setVlmImageDataUrl] = useState<string | null>(null);
+  const [vlmTestResult, setVlmTestResult] = useState<VLMTestResult | null>(null);
+  const [vlmTestRunning, setVlmTestRunning] = useState(false);
+  const [vlmTestError, setVlmTestError] = useState("");
+  const vlmFileInput = useRef<HTMLInputElement>(null);
   const imageHandling = parseModelVlmJSON(profile.modelVlm);
   const profileModels = relayProfileModelNames(profile);
   const profileGoals = tomlFeatureBoolean(profile.configContents, "goals");
@@ -6862,6 +6896,7 @@ function RelayProfileEditor({
       "imageGenerationApiKey",
       "contextWindow",
       "autoCompactLimit",
+      "modelAutoCompact",
       "modelRoutes",
       "proxyEnabled",
       "proxyUrl",
@@ -6886,6 +6921,43 @@ function RelayProfileEditor({
     } finally {
       setDoctorRunning(false);
     }
+  };
+  const runVLMTest = async (imageDataUrl = vlmImageDataUrl) => {
+    if (!imageDataUrl || vlmTestRunning) return;
+    setVlmTestRunning(true);
+    setVlmTestError("");
+    setVlmTestResult(null);
+    try {
+      const result = await actions.testVLMProfile(profile, imageDataUrl);
+      if (result) setVlmTestResult(result);
+    } finally {
+      setVlmTestRunning(false);
+    }
+  };
+  const chooseVLMTestImage = (file?: File) => {
+    setVlmTestError("");
+    setVlmTestResult(null);
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setVlmTestError("请选择图片文件。");
+      return;
+    }
+    if (file.size > VLM_TEST_MAX_IMAGE_BYTES) {
+      setVlmTestError("图片超过 10MB，请换一张较小的图片。");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setVlmTestError("读取图片失败，请重新选择。");
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      if (!value) {
+        setVlmTestError("读取图片失败，请重新选择。");
+        return;
+      }
+      setVlmImageDataUrl(value);
+      void runVLMTest(value);
+    };
+    reader.readAsDataURL(file);
   };
   return (
     <div className="relay-profile-editor">
@@ -7154,6 +7226,15 @@ function RelayProfileEditor({
               spellCheck={false}
             />
           </Field>
+          <Field label="每模型自动压缩 (%)">
+            <Textarea
+              className="relay-model-list-textarea"
+              value={profile.modelAutoCompact}
+              onChange={(event) => updateDraft({ modelAutoCompact: event.currentTarget.value })}
+              placeholder={'JSON，例如 {"gpt-5.6":"90%","qwen-plus":"84.5"}'}
+              spellCheck={false}
+            />
+          </Field>
           <Button
             onClick={async () => {
               const models = await actions.fetchRelayProfileModels(profile);
@@ -7281,6 +7362,45 @@ function RelayProfileEditor({
               {!profile.vlmApiKey.trim() || !profile.vlmModel.trim() || !profile.vlmBaseUrl.trim() ? (
                 <p className="field-hint warn">VLM 配置不完整时将保留原始图片，不会静默丢失图片内容。</p>
               ) : null}
+              <div className="relay-vlm-test">
+                <input
+                  ref={vlmFileInput}
+                  accept="image/*"
+                  aria-label="选择 VLM 测试图片"
+                  style={{ display: "none" }}
+                  onChange={(event) => {
+                    chooseVLMTestImage(event.currentTarget.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                  type="file"
+                />
+                <Button
+                  disabled={vlmTestRunning || !profile.vlmApiKey.trim() || !profile.vlmModel.trim() || !profile.vlmBaseUrl.trim()}
+                  onClick={() => vlmFileInput.current?.click()}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  <Image className="h-4 w-4" />
+                  {vlmImageDataUrl ? "换图并测试" : "选择图片并测试 VLM"}
+                </Button>
+                {vlmImageDataUrl ? (
+                  <>
+                    <img className="vlm-test-preview" src={vlmImageDataUrl} alt="VLM 测试图片预览" />
+                    <Button disabled={vlmTestRunning} onClick={() => void runVLMTest()} size="sm" type="button" variant="ghost">
+                      {vlmTestRunning ? "正在测试…" : "重测"}
+                    </Button>
+                  </>
+                ) : null}
+                {vlmTestError ? <p className="field-hint warn" role="alert">{vlmTestError}</p> : null}
+                {vlmTestResult ? (
+                  <div className={`vlm-test-result ${isSuccessStatus(vlmTestResult.status) ? "is-success" : "is-error"}`} role="status">
+                    <strong>{vlmTestResult.message}</strong>
+                    {vlmTestResult.description ? <p>{vlmTestResult.description}</p> : null}
+                    {vlmTestResult.httpCode ? <small>HTTP {vlmTestResult.httpCode} · {vlmTestResult.durationMs ?? 0} ms</small> : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </section>
@@ -8100,6 +8220,7 @@ function normalizeSettings(settings: BackendSettings): BackendSettings {
             modelInsertMode: "patch",
             modelList: "",
             modelWindows: "",
+            modelAutoCompact: "",
             modelRoutes: [],
             modelVlm: "",
             vlmApiKey: "",
@@ -8214,6 +8335,7 @@ function normalizeRelayProfile(profile: RelayProfile, index = 0, defaultContextS
     modelInsertMode: profile.modelInsertMode || "patch",
     modelList: profile.modelList || "",
     modelWindows: profile.modelWindows || "",
+    modelAutoCompact: profile.modelAutoCompact || "",
     modelRoutes: normalizeRelayModelRoutes(profile.modelRoutes),
     modelVlm: normalizeModelVlmJSON(profile.modelVlm || ""),
     vlmApiKey: profile.vlmApiKey || "",
@@ -8713,6 +8835,7 @@ function createRelayProfile(settings: BackendSettings): RelayProfile {
     modelInsertMode: "patch",
     modelList: "",
     modelWindows: "",
+    modelAutoCompact: "",
     modelRoutes: [],
     modelVlm: "",
     vlmApiKey: "",

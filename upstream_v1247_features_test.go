@@ -237,7 +237,7 @@ func TestV1247RelayCommonFeaturesPreserveProviderGoalsOverride(t *testing.T) {
 	}
 }
 
-func TestV1247RelayModelCatalogTakesOverCCSwitchAndPreservesExternalCatalog(t *testing.T) {
+func TestV1247RelayModelCatalogUsesProfileCatalogAfterTakingOverCCSwitch(t *testing.T) {
 	settings := defaultSettings()
 	profile := defaultRelayProfile()
 	profile.ModelList = "gpt-route"
@@ -246,7 +246,7 @@ func TestV1247RelayModelCatalogTakesOverCCSwitchAndPreservesExternalCatalog(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rootKeyString(ccSwitch, "model_catalog_json") != "codex-models.json" {
+	if got, want := rootKeyString(ccSwitch, "model_catalog_json"), relayModelCatalogRelativePath(profile.ID); got != want {
 		t.Fatalf("CCSwitch catalog was not replaced:\n%s", ccSwitch)
 	}
 

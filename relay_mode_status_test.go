@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,60 @@ func TestRelaySnapshotBOMRootKeyAcrossModes(t *testing.T) {
 				t.Fatalf("written %s snapshot has %d applied-mode markers: %q", test.mode, got, contents)
 			}
 		})
+	}
+}
+
+func TestRelaySnapshotRollsBackFilesWhenAuthWriteFails(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.toml")
+	catalogPath := filepath.Join(home, filepath.FromSlash(relayModelCatalogRelativePath("relay")))
+	authPath := filepath.Join(home, "auth.json")
+	before := map[string]string{
+		configPath:  "model_provider = \"openai\"\n",
+		catalogPath: "{\"models\":[{\"slug\":\"existing\"}]}\n",
+		authPath:    fakeChatGPTAuthJSON(t, "before@example.com"),
+	}
+	for path, contents := range before {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create parent for %s: %v", filepath.Base(path), err)
+		}
+		mode := os.FileMode(0o600)
+		if path != authPath {
+			mode = 0o644
+		}
+		if err := os.WriteFile(path, []byte(contents), mode); err != nil {
+			t.Fatalf("write initial %s: %v", filepath.Base(path), err)
+		}
+	}
+
+	settings := defaultSettings()
+	relay := relayProfile{
+		ID:             "relay",
+		BaseURL:        "https://relay.example/v1",
+		APIKey:         "relay-key",
+		Protocol:       "responses",
+		RelayMode:      "mixedApi",
+		ModelList:      "gpt-5.6",
+		AuthContents:   fakeChatGPTAuthJSON(t, "after@example.com"),
+		ConfigContents: before[configPath],
+	}
+	_, err := writeRelaySnapshotWithWriter(home, settings, relay, false, func(write relaySnapshotWrite) error {
+		if write.Path == authPath {
+			return errors.New("injected auth write failure")
+		}
+		return writeRelaySnapshotFile(write)
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected auth write failure") {
+		t.Fatalf("expected injected auth write failure, got %v", err)
+	}
+	for path, expected := range before {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read restored %s: %v", filepath.Base(path), readErr)
+		}
+		if string(got) != expected {
+			t.Fatalf("failed relay apply did not restore %s:\n got: %s\nwant: %s", filepath.Base(path), got, expected)
+		}
 	}
 }
 
